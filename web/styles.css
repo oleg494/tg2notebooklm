@@ -149,7 +149,6 @@ h1 {
 
 .drop-zone {
   display: grid;
-  place-items: center;
   min-height: 260px;
   padding: 28px;
   border: 1px dashed #7d9ab4;
@@ -247,6 +246,7 @@ progress::-moz-progress-bar { background: var(--signal); }
 .cli-note p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
 .cli-note code { padding: 12px; color: #dce9f5; background: var(--night); white-space: nowrap; }
 footer { display: flex; justify-content: space-between; padding: 28px 0 48px; color: var(--muted); font: 11px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.06em; }
+footer a { color: var(--blue); text-decoration: none; }
 noscript { display: block; padding: 20px; color: #fff; background: var(--error); text-align: center; }
 
 @keyframes blink { 50% { opacity: 0; } }

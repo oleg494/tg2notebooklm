@@ -162,4 +162,4 @@ Architecture and the evidence behind every design decision:
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Made by [@oleg494](https://github.com/oleg494).
