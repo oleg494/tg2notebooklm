@@ -18,6 +18,7 @@ from tg2notebooklm.media import (
     classify_candidate,
     collect_candidates,
     copy_native_source,
+    file_digest,
     mark_candidate,
 )
 from tg2notebooklm.model import Chat, Message, PackageConfig, PackageResult
@@ -140,6 +141,7 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
 
         native_count = 0
         selected_native_paths: set[Path] = set()
+        selected_native_digests: set[str] = set()
         for candidate in sorted(native_candidates, key=_native_priority):
             if candidate.path in selected_native_paths:
                 mark_candidate(candidate, "native_source_duplicate", reason="Same file already selected through another message")
@@ -153,9 +155,14 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
             if slots_remaining <= 0:
                 mark_candidate(candidate, "excluded_source_budget", reason="No source slots remained")
                 continue
+            digest = file_digest(candidate.path)
+            if digest in selected_native_digests:
+                mark_candidate(candidate, "native_source_duplicate", reason="Identical file content already selected (different export filename)")
+                continue
             native_count += 1
             copied = copy_native_source(candidate, sources_dir, native_count)
             selected_native_paths.add(candidate.path)
+            selected_native_digests.add(digest)
             slots_remaining -= 1
             mark_candidate(candidate, "native_source", source=copied.name)
             source_records.append(_source_record(copied, "native_attachment"))

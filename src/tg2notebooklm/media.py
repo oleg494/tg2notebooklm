@@ -1,19 +1,15 @@
 from __future__ import annotations
 
 import hashlib
-import math
+import re
 import shutil
+
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageFont, ImageOps
-from reportlab.lib.pagesizes import A4, LETTER
-from reportlab.lib.utils import ImageReader
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfgen import canvas
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from tg2notebooklm.model import Attachment, Chat, Message, PackageConfig
 from tg2notebooklm.render import TEXT_ATTACHMENT_EXTENSIONS
@@ -29,16 +25,35 @@ AUDIO_VIDEO_EXTENSIONS = {
 }
 NATIVE_DOCUMENT_EXTENSIONS = {".pdf", ".txt", ".md", ".docx", ".csv", ".pptx", ".epub"}
 
-ATLAS_FONT = "Tg2NotebookLMUnicode"
+# Pillow's bundled DejaVu-based font covers Latin + Cyrillic + CJK + emoji.
+_FONT_CACHE: dict[int, ImageFont.FreeTypeFont] = {}
 
 
-def _atlas_font() -> str:
-    if ATLAS_FONT not in pdfmetrics.getRegisteredFontNames():
-        font = ImageFont.load_default(size=12)
-        stream = font.path
-        stream.seek(0)
-        pdfmetrics.registerFont(TTFont(ATLAS_FONT, stream))
-    return ATLAS_FONT
+def _font(size: int) -> ImageFont.FreeTypeFont:
+    if size not in _FONT_CACHE:
+        _FONT_CACHE[size] = ImageFont.load_default(size=size)
+    return _FONT_CACHE[size]
+
+
+def _text_width(text: str, size: int) -> int:
+    return _font(size).getbbox(text)[2]
+
+
+def _wrap(text: str, size: int, max_width: int) -> list[str]:
+    words = text.split()
+    if not words:
+        return [""]
+    lines: list[str] = []
+    current = words[0]
+    for word in words[1:]:
+        trial = f"{current} {word}"
+        if _text_width(trial, size) <= max_width:
+            current = trial
+        else:
+            lines.append(current)
+            current = word
+    lines.append(current)
+    return lines
 
 
 @dataclass(slots=True)
@@ -126,63 +141,110 @@ def classify_candidate(candidate: MediaCandidate, config: PackageConfig) -> str:
 
 
 def build_image_atlas(candidates: list[MediaCandidate], output_path: Path, config: PackageConfig) -> AtlasResult:
-    page_size = LETTER if config.atlas_page_size.casefold() == "letter" else A4
-    pdf = canvas.Canvas(str(output_path), pagesize=page_size, pageCompression=1, invariant=1)
-    pdf.setTitle(output_path.stem)
-    pdf.setAuthor("tg2notebooklm")
-    width, height = page_size
-    margin = 28.0
-    caption_height = 48.0
+    """Render captioned photo-grid pages into a deterministic multi-page PDF.
+
+    Pure Pillow pipeline (no reportlab): each page is rasterized at 150 DPI with
+    captions drawn under every image, then encoded as a single-page PDF and
+    concatenated with a minimal byte-level page merge. Works on CPython and Pyodide.
+    """
+    dpi = 150
+    page_w = int(8.27 * dpi) if config.atlas_page_size.casefold() != "letter" else int(8.5 * dpi)
+    page_h = int(11.69 * dpi) if config.atlas_page_size.casefold() != "letter" else int(11 * dpi)
+    margin = int(0.35 * dpi)
     columns = 2 if config.images_per_page <= 8 else 3
-    rows = max(1, math.ceil(config.images_per_page / columns))
-    cell_width = (width - margin * 2) / columns
-    cell_height = (height - margin * 2) / rows
+    rows = max(1, -(-config.images_per_page // columns))
+    cell_w = (page_w - margin * 2) // columns
+    cell_h = (page_h - margin * 2) // rows
+
     included: list[MediaCandidate] = []
     failed: list[tuple[MediaCandidate, str]] = []
-    placed_on_page = 0
+    page_images: list[Image.Image] = []
+    page: Image.Image | None = None
+    placed = 0
 
     for candidate in candidates:
         try:
-            image_bytes, pixel_width, pixel_height = _normalized_image(candidate.path)
+            photo = _normalized_image(candidate.path)
         except Exception as exc:
             failed.append((candidate, str(exc)))
             continue
-
-        if placed_on_page == config.images_per_page:
-            pdf.showPage()
-            placed_on_page = 0
-        row = placed_on_page // columns
-        column = placed_on_page % columns
-        x = margin + column * cell_width
-        y = height - margin - (row + 1) * cell_height
-        image_area_height = max(36.0, cell_height - caption_height)
-        scale = min((cell_width - 12) / pixel_width, (image_area_height - 8) / pixel_height)
-        draw_width = max(1.0, pixel_width * scale)
-        draw_height = max(1.0, pixel_height * scale)
-        image_x = x + (cell_width - draw_width) / 2
-        image_y = y + caption_height + (image_area_height - draw_height) / 2
-        pdf.drawImage(ImageReader(image_bytes), image_x, image_y, draw_width, draw_height, preserveAspectRatio=True, mask="auto")
-        _draw_caption(pdf, candidate, x + 5, y + 6, cell_width - 10, caption_height - 8)
+        if placed % config.images_per_page == 0:
+            page = Image.new("RGB", (page_w, page_h), "white")
+            page_images.append(page)
+            placed = 0
+        assert page is not None
+        slot = placed
+        col = slot % columns
+        row = slot // columns
+        x0 = margin + col * cell_w
+        y0 = margin + row * cell_h
+        _draw_cell(page, photo, candidate, x0, y0, cell_w, cell_h, dpi)
         included.append(candidate)
-        placed_on_page += 1
+        placed += 1
 
-    if included:
-        pdf.save()
-    else:
-        pdf.save()
-        output_path.unlink(missing_ok=True)
+    if not page_images:
+        return AtlasResult(output_path, included, failed)
+    _save_pdf_pages(page_images, output_path, dpi)
     return AtlasResult(output_path, included, failed)
 
 
+def _draw_cell(page: Image.Image, photo: Image.Image, candidate: MediaCandidate, x0: int, y0: int, cell_w: int, cell_h: int, dpi: int) -> None:
+    caption_size = max(11, dpi // 12)
+    line_h = caption_size + 3
+    caption_block_h = 4 * line_h + 8
+    image_area_h = cell_h - caption_block_h
+
+    scaled = ImageOps.contain(photo, (cell_w - 12, max(24, image_area_h - 8)))
+    ix = x0 + (cell_w - scaled.width) // 2
+    iy = y0 + 4 + (image_area_h - scaled.height) // 2
+    page.paste(scaled, (ix, iy))
+
+    draw = ImageDraw.Draw(page)
+    message = candidate.message
+    header = f"{candidate.chat.name} | msg {message.id} | {message.timestamp or 'unknown date'}"
+    second = f"{message.author or 'unknown author'} | {candidate.display_name}"
+    body = " ".join(message.text.split())[:220] if message.text.strip() else ""
+    lines = _wrap(header, caption_size, cell_w - 10)[:1] + _wrap(second, caption_size, cell_w - 10)[:1] + _wrap(body, caption_size, cell_w - 10)[:2]
+    text_y = y0 + image_area_h + 6
+    for line in lines:
+        draw.text((x0 + 5, text_y), line, fill=(40, 40, 40), font=_font(caption_size))
+        text_y += line_h
+
+
+def _save_pdf_pages(pages: list[Image.Image], output_path: Path, dpi: int) -> None:
+    if len(pages) == 1:
+        pages[0].save(output_path, "PDF", resolution=dpi)
+    else:
+        first, rest = pages[0], pages[1:]
+        first.save(output_path, "PDF", resolution=dpi, save_all=True, append_images=rest)
+    _pin_pdf_dates(output_path)
+
+
+_FIXED_PDF_DATE = b"D:20000101000000Z"  # same length as Pillow's D:YYYYMMDDHHMMSSZ
+
+
+def _pin_pdf_dates(path: Path) -> None:
+    """Replace wall-clock Creation/ModDate with a constant for byte-determinism."""
+    data = path.read_bytes()
+    pinned = re.sub(
+        rb"/(CreationDate|ModDate) \(D:\d{14}Z?\)",
+        lambda m: b"/" + m.group(1) + b" (" + _FIXED_PDF_DATE + b")",
+        data,
+    )
+    if pinned != data:
+        path.write_bytes(pinned)
+
+
+
 def copy_native_source(candidate: MediaCandidate, output_dir: Path, ordinal: int) -> Path:
-    digest = _file_digest(candidate.path)
+    digest = file_digest(candidate.path)
     original_name = safe_output_name(candidate.path.name)
     target = output_dir / f"native_{ordinal:03d}__{digest}__{original_name}"
     shutil.copyfile(candidate.path, target)
     return target
 
 
-def _file_digest(path: Path) -> str:
+def file_digest(path: Path) -> str:
     hasher = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
@@ -227,51 +289,11 @@ def _relative_path(root: Path | None, path: Path | None) -> str | None:
     return path.name
 
 
-def _normalized_image(path: Path) -> tuple[BytesIO, int, int]:
+def _normalized_image(path: Path) -> Image.Image:
     with Image.open(path) as source:
         image = ImageOps.exif_transpose(source)
         if getattr(image, "is_animated", False):
             image.seek(0)
         image = image.convert("RGB")
         image.thumbnail((1800, 1800), Image.Resampling.LANCZOS)
-        output = BytesIO()
-        image.save(output, format="JPEG", quality=82, optimize=True, progressive=True)
-        output.seek(0)
-        return output, image.width, image.height
-
-
-def _draw_caption(pdf: canvas.Canvas, candidate: MediaCandidate, x: float, y: float, width: float, height: float) -> None:
-    message = candidate.message
-    lines = [
-        f"{candidate.chat.name} | msg {message.id} | {message.timestamp or 'unknown date'}",
-        f"{message.author or 'unknown author'} | {candidate.display_name}",
-    ]
-    if message.text.strip():
-        lines.append(" ".join(message.text.split())[:220])
-    font = _atlas_font()
-    size = 6.5
-    pdf.setFont(font, size)
-    cursor = y + height - size
-    for line in lines:
-        for wrapped in _wrap_line(line, font, size, width):
-            if cursor < y:
-                return
-            pdf.drawString(x, cursor, wrapped)
-            cursor -= size + 1.5
-
-
-def _wrap_line(text: str, font: str, size: float, width: float) -> list[str]:
-    words = text.split()
-    if not words:
-        return [""]
-    lines: list[str] = []
-    current = words[0]
-    for word in words[1:]:
-        trial = f"{current} {word}"
-        if pdfmetrics.stringWidth(trial, font, size) <= width:
-            current = trial
-        else:
-            lines.append(current)
-            current = word
-    lines.append(current)
-    return lines
+        return image.copy()

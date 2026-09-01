@@ -32,6 +32,16 @@ def render_chat_header(chat: Chat, part: int | None = None) -> str:
     return "\n".join(lines)
 
 
+def code_fence_for(text: str) -> str:
+    """Return a backtick fence longer than any backtick run inside text."""
+    longest = 0
+    run = 0
+    for char in text:
+        run = run + 1 if char == "`" else 0
+        longest = max(longest, run)
+    return "`" * max(3, longest + 1)
+
+
 def render_message(chat: Chat, message: Message, inline_text_max_bytes: int) -> str:
     if message.kind == "date_marker":
         return f"\n## {message.text}\n"
@@ -156,7 +166,8 @@ def _render_attachment(chat: Chat, attachment: Attachment, inline_text_max_bytes
             text, encoding = _read_text_attachment(path)
             if text:
                 language = _fence_language(path)
-                lines.append(f"Attached text (`{path.name}`, decoded as {encoding}):\n\n```{language}\n{text}\n```")
+                fence = code_fence_for(text)
+                lines.append(f"Attached text (`{path.name}`, decoded as {encoding}):\n\n{fence}{language}\n{text}\n{fence}")
             else:
                 lines.append(f"Attached text `{path.name}` could not be decoded without binary data.")
         else:
