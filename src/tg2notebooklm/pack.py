@@ -22,6 +22,7 @@ from tg2notebooklm.media import (
     mark_candidate,
 )
 from tg2notebooklm.model import Chat, Message, PackageConfig, PackageResult
+from tg2notebooklm.docspack import DOC_EXTENSIONS, DocPackItem, convert_to_markdown, markitdown_available, pack_documents
 from tg2notebooklm.pdfpack import PdfPackItem, has_text_layer, merge_pdf_documents, pypdf_available
 from tg2notebooklm.render import count_words, render_chat_header, render_message
 from tg2notebooklm.security import safe_slug
@@ -140,9 +141,56 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
             for candidate in image_candidates:
                 mark_candidate(candidate, "metadata_only", reason=reason)
 
+        docs_count = 0
+        doc_candidates: list[MediaCandidate] = []
         native_count = 0
         selected_native_paths: set[Path] = set()
         selected_native_digests: set[str] = set()
+        if config.docs_to_markdown and markitdown_available() and config.include_native_files and slots_remaining > 0:
+            pack_max_bytes = config.docs_pack_max_mb * 1024 * 1024
+            docs_seen_digests: set[str] = set()
+            doc_items: list[DocPackItem] = []
+            for candidate in native_candidates:
+                if candidate.suffix not in DOC_EXTENSIONS:
+                    continue
+                if candidate.path.stat().st_size > pack_max_bytes:
+                    continue
+                digest = file_digest(candidate.path)
+                if digest in docs_seen_digests or digest in selected_native_digests:
+                    continue
+                markdown = convert_to_markdown(candidate.path)
+                if markdown is None:
+                    continue
+                docs_seen_digests.add(digest)
+                doc_candidates.append(candidate)
+                doc_items.append(
+                    DocPackItem(
+                        path=candidate.path,
+                        display_name=candidate.display_name,
+                        chat_name=candidate.chat.name,
+                        message_id=candidate.message.id,
+                        timestamp=candidate.message.timestamp,
+                        author=candidate.message.author,
+                        markdown=markdown,
+                    )
+                )
+            if len(doc_candidates) >= 2:
+                docs_path = None
+                for content in pack_documents(doc_items, config.hard_words):
+                    if slots_remaining <= 0:
+                        break
+                    docs_count += 1
+                    docs_path = sources_dir / f"docs_{docs_count:03d}.md"
+                    _write_text(docs_path, content)
+                    slots_remaining -= 1
+                    source_records.append(_source_record(docs_path, "docs_markdown"))
+                if docs_path is not None:
+                    for candidate in doc_candidates:
+                        selected_native_paths.add(candidate.path)
+                        selected_native_digests.add(file_digest(candidate.path))
+                        mark_candidate(candidate, "docs_markdown", source=docs_path.name)
+
+
         ordered_native = sorted(native_candidates, key=_native_priority)
         packed_groups = _pack_pdf_groups(ordered_native, config, selected_native_digests, slots_remaining)
         for merged_name, group in packed_groups:
@@ -167,9 +215,10 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
                 mark_candidate(candidate, "native_source", source=merged_name)
             source_records.append(_source_record(merged_path, "native_attachment"))
         packed_paths = {candidate.path for _, group in packed_groups for candidate in group}
+        docs_paths = {candidate.path for candidate in doc_candidates} if docs_count else set()
         for candidate in ordered_native:
             if candidate.path in selected_native_paths:
-                if candidate.path not in packed_paths:
+                if candidate.path not in packed_paths and candidate.path not in docs_paths:
                     mark_candidate(candidate, "native_source_duplicate", reason="Same file already selected through another message")
                 continue
             if not config.include_native_files:
@@ -219,6 +268,7 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
                 "image_atlas_count": atlas_count,
                 "attachment_catalog_count": 1,
                 "native_source_count": native_count,
+                "docs_markdown_count": docs_count,
                 "unavailable_attachments": sum(not record["available"] for record in attachment_records),
                 "excluded_by_budget": sum(record.get("decision") == "excluded_source_budget" for record in attachment_records),
             },
@@ -664,7 +714,11 @@ def _validate_sources(sources_dir: Path, sources: list[SourceRecord], config: Pa
     for source in sources:
         if source.byte_count > config.max_source_bytes:
             raise ValueError(f"Generated source exceeds byte ceiling: {source.name}")
-        if source.word_count is not None and source.kind == "chat_markdown" and source.word_count > config.hard_words:
+        if (
+            source.word_count is not None
+            and source.kind in ("chat_markdown", "docs_markdown")
+            and source.word_count > config.hard_words
+        ):
             raise ValueError(f"Generated source exceeds word ceiling: {source.name}")
 
 
@@ -681,6 +735,8 @@ def _config_dict(config: PackageConfig) -> dict[str, Any]:
         "include_image_atlases": config.include_image_atlases,
         "pack_native_pdfs": config.pack_native_pdfs,
         "pdf_pack_max_mb": config.pdf_pack_max_mb,
+        "docs_to_markdown": config.docs_to_markdown,
+        "docs_pack_max_mb": config.docs_pack_max_mb,
         "transcribe_audio": config.transcribe_audio,
         "whisper_language": config.whisper_language,
         "ocr_images": config.ocr_images,

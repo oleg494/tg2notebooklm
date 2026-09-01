@@ -31,6 +31,14 @@ dependencies = [
 dev = [
   "pytest>=8.3,<9",
   "pytest-cov>=6,<7",
+  "markitdown>=0.1,<0.2",
+  "mammoth>=1.11,<2",
+  "python-pptx>=1,<2",
+]
+docs = [
+  "markitdown>=0.1,<0.2",
+  "mammoth>=1.11,<2",
+  "python-pptx>=1,<2",
 ]
 transcribe = [
   "faster-whisper>=1.1,<2",

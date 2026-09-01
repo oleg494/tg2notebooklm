@@ -8,8 +8,9 @@ from typing import Sequence
 
 from tg2notebooklm.media import classify_candidate, collect_candidates
 from tg2notebooklm.model import PackageConfig
-from tg2notebooklm.pack import build_package
+from tg2notebooklm.docspack import markitdown_available
 from tg2notebooklm.parsers import detect_export, parse_export
+from tg2notebooklm.pack import build_package
 from tg2notebooklm.render import count_words
 
 PLAN_LIMITS = {
@@ -30,6 +31,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload = inspect_export(args.input, args.plan, args.source_limit)
         else:
             config = _config_from_args(args)
+            if config.docs_to_markdown and not markitdown_available():
+                print(
+                    "error: --docs-to-markdown requires the optional docs extra; install it with: pip install tg2notebooklm[docs]",
+                    file=sys.stderr,
+                )
+                return 2
             chats = parse_export(args.input)
             result = build_package(chats, args.output, config)
             payload = result.as_dict()
@@ -100,6 +107,8 @@ def _build_parser() -> argparse.ArgumentParser:
     convert_parser.add_argument("--no-native-files", action="store_true", help="Do not copy audio/video/document files as sources")
     convert_parser.add_argument("--no-pdf-packing", action="store_true", help="Keep small PDFs as separate native sources instead of merging them")
     convert_parser.add_argument("--pdf-pack-max-mb", type=int, default=20, help="Max single-PDF size for merged packing (MB)")
+    convert_parser.add_argument("--docs-to-markdown", action="store_true", help="Convert small DOCX/PPTX/EPUB to Markdown and pack into shared docs_*.md sources (requires docs extra)")
+    convert_parser.add_argument("--docs-pack-max-mb", type=int, default=20, help="Max single-document size for Markdown conversion packing (MB)")
     convert_parser.add_argument("--transcribe-audio", action="store_true", help="Locally transcribe exported audio before packing (requires transcribe extra)")
     convert_parser.add_argument("--whisper-model", default="small", help="faster-whisper model name or local path")
     convert_parser.add_argument("--whisper-language", default=None, help="Optional language code; default auto-detect")
@@ -129,6 +138,8 @@ def _config_from_args(args: argparse.Namespace) -> PackageConfig:
         include_image_atlases=not args.no_image_atlases,
         pack_native_pdfs=not args.no_pdf_packing,
         pdf_pack_max_mb=args.pdf_pack_max_mb,
+        docs_to_markdown=args.docs_to_markdown,
+        docs_pack_max_mb=args.docs_pack_max_mb,
         transcribe_audio=args.transcribe_audio,
         whisper_model=args.whisper_model,
         whisper_language=args.whisper_language,
