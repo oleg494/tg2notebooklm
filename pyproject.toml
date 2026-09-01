@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tg2notebooklm"
+version = "0.1.0"
+description = "Convert Telegram Desktop JSON and HTML exports into source-budgeted Gemini Notebook / NotebookLM files."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "tg2notebooklm contributors" }]
+keywords = ["telegram", "notebooklm", "gemini-notebook", "chat-export", "markdown"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Communications :: Chat",
+  "Topic :: Text Processing :: Markup :: Markdown",
+]
+dependencies = [
+  "beautifulsoup4>=4.12,<5",
+  "Pillow>=10,<13",
+  "openpyxl>=3.1,<4",
+  "reportlab>=4.2,<5",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9",
+  "pytest-cov>=6,<7",
+]
+transcribe = [
+  "faster-whisper>=1.1,<2",
+]
+
+[project.scripts]
+tg2notebooklm = "tg2notebooklm.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/OWNER/tg2notebooklm"
+Issues = "https://github.com/OWNER/tg2notebooklm/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tg2notebooklm"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["tg2notebooklm"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
