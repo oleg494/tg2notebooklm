@@ -174,18 +174,17 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
                         markdown=markdown,
                     )
                 )
-            if len(doc_candidates) >= 2:
-                docs_path = None
-                for content in pack_documents(doc_items, config.hard_words):
-                    if slots_remaining <= 0:
-                        break
-                    docs_count += 1
-                    docs_path = sources_dir / f"docs_{docs_count:03d}.md"
-                    _write_text(docs_path, content)
-                    slots_remaining -= 1
-                    source_records.append(_source_record(docs_path, "docs_markdown"))
-                if docs_path is not None:
-                    for candidate in doc_candidates:
+        if len(doc_candidates) >= 2:
+            for content, chunk_members in pack_documents(doc_items, config.hard_words):
+                if slots_remaining <= 0:
+                    break
+                docs_count += 1
+                docs_path = sources_dir / f"docs_{docs_count:03d}.md"
+                _write_text(docs_path, content)
+                slots_remaining -= 1
+                source_records.append(_source_record(docs_path, "docs_markdown"))
+                for candidate in doc_candidates:
+                    if any(member.path == candidate.path for member in chunk_members):
                         selected_native_paths.add(candidate.path)
                         selected_native_digests.add(file_digest(candidate.path))
                         mark_candidate(candidate, "docs_markdown", source=docs_path.name)

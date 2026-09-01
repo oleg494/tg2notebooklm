@@ -76,13 +76,12 @@ def docs_chat(tmp_path: Path):
 
 
 def test_packs_docx_into_single_docs_source(tmp_path: Path) -> None:
-    chat, documents = docs_chat(tmp_path)
+    chat, _documents = docs_chat(tmp_path)
     output = tmp_path / "out"
 
     build_package([chat], output, PackageConfig(source_limit=8, target_words=400_000, hard_words=500_000, docs_to_markdown=True))
 
-    sources = sorted((output / "sources").iterdir())
-    docs_sources = [path for path in sources if path.name.startswith("docs_")]
+    docs_sources = [path for path in sorted((output / "sources").iterdir()) if path.name.startswith("docs_")]
     assert len(docs_sources) == 1
     content = docs_sources[0].read_text(encoding="utf-8")
     assert "# doc-01: note1.docx" in content
@@ -97,6 +96,72 @@ def test_packs_docx_into_single_docs_source(tmp_path: Path) -> None:
     summary = manifest["summary"]
     assert summary["docs_markdown_count"] == 1
     assert summary["native_source_count"] == 0
+
+
+def test_multi_chunk_docs_attributed_to_correct_sources(tmp_path: Path) -> None:
+    export_root = tmp_path / "export"
+    messages = []
+    for index in range(1, 4):
+        path = export_root / "docs" / f"big{index}.docx"
+        make_docx(path, " ".join(f"w{index}_{i}" for i in range(300)))
+        msg = message(index)
+        msg.attachments.append(docx_attachment(index, path))
+        messages.append(msg)
+    chat = Chat(name="Docs", kind="private_group", id="7", input_format="json", messages=messages, export_root=export_root)
+    output = tmp_path / "out"
+
+    build_package([chat], output, PackageConfig(source_limit=10, target_words=100, hard_words=400, docs_to_markdown=True))
+
+    sources = sorted((output / "sources").glob("docs_*.md"))
+    assert len(sources) >= 2  # word ceiling forces a split
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    sources_by_doc = {record["name"]: record.get("source") for record in manifest["attachments"] if record["decision"] == "docs_markdown"}
+    assert len(sources_by_doc) == 3
+    assert len(set(sources_by_doc.values())) == len(sources)  # every doc points at its real chunk
+    for source_name in sources_by_doc.values():
+        assert (output / "sources" / source_name).is_file()
+
+
+def test_budget_exhaustion_falls_back_to_native_not_silent_loss(tmp_path: Path) -> None:
+    export_root = tmp_path / "export"
+    messages = []
+    for index in range(1, 4):
+        path = export_root / "docs" / f"note{index}.docx"
+        make_docx(path, " ".join(f"d{index}_{i}" for i in range(120)))
+        msg = Message(
+            id=str(index),
+            sequence=index,
+            kind="message",
+            timestamp=f"2026-08-01T10:{index:02d}:00+00:00",
+            author="Alice",
+            text="hi",
+        )
+        msg.attachments.append(docx_attachment(index, path))
+        messages.append(msg)
+    chat = Chat(name="Docs", kind="private_group", id="7", input_format="json", messages=messages, export_root=export_root)
+    output = tmp_path / "out"
+
+    # One text chunk (tiny messages); 2 free slots for the docs lane; each
+    # converted section (~140 words) exceeds half of hard_words, so chunk 1
+    # is written and the remaining docs must fall back to native, not vanish.
+    build_package([chat], output, PackageConfig(source_limit=5, target_words=200, hard_words=200, docs_to_markdown=True))
+
+
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    decisions = {record["name"]: record["decision"] for record in manifest["attachments"]}
+    values = list(decisions.values())
+    # Two chunks were written; the third doc must NOT be marked docs_markdown
+    # (which would be a silent-loss lie) — it gets an explicit exclusion reason
+    # or falls back to native, and every marked doc really is in its source.
+    assert values.count("docs_markdown") == 2
+    assert "docs_markdown" in values
+    for name, decision in decisions.items():
+        if decision == "docs_markdown":
+            source = next(r.get("source") for r in manifest["attachments"] if r["name"] == name)
+            assert (output / "sources" / source).is_file()
+        else:
+            assert decisions[name] in ("native_source", "excluded_source_budget")
+
 
 
 def test_docs_source_is_byte_deterministic(tmp_path: Path) -> None:

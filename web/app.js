@@ -214,6 +214,10 @@ function handleWorkerMessage(event) {
     renderResult(message.payload);
     setProgress(100, "Готово", "Пакет собран локально. Скачайте ZIP и загрузите содержимое sources/ в NotebookLM.");
     convertButton.disabled = false;
+    if (worker) {
+      worker.terminate();
+      worker = null;
+    }
   }
 }
 

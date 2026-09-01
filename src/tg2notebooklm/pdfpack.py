@@ -41,14 +41,20 @@ class PdfPackItem:
 
 
 def has_text_layer(path: Path) -> bool:
-    """True when any of the first pages carries extractable text (D8 scan gate)."""
-    PdfReader, _ = _pdf_modules()
-    reader = PdfReader(path)
-    try:
-        return any((page.extract_text() or "").strip() for page in reader.pages[:3])
-    finally:
-        reader.stream.close()
+    """True when any of the first pages carries extractable text (D8 scan gate).
 
+    Corrupt/unparseable PDFs return False so they fall through to native copy
+    instead of aborting the whole run (COR003).
+    """
+    try:
+        PdfReader, _ = _pdf_modules()
+        reader = PdfReader(path)
+        try:
+            return any((page.extract_text() or "").strip() for page in reader.pages[:3])
+        finally:
+            reader.stream.close()
+    except Exception:
+        return False
 
 def merge_pdf_documents(items: list[PdfPackItem], output_path: Path) -> None:
     """Write one merged PDF: a provenance cover page followed by each document's pages.

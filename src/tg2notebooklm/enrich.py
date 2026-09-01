@@ -8,13 +8,10 @@ from typing import Any
 
 from PIL import Image
 
+from tg2notebooklm.media import AUDIO_VIDEO_EXTENSIONS, IMAGE_EXTENSIONS
 from tg2notebooklm.model import Chat, PackageConfig
 
-AUDIO_EXTENSIONS = {
-    ".3g2", ".3gp", ".aac", ".aif", ".aifc", ".aiff", ".amr", ".au", ".avi",
-    ".m4a", ".mp3", ".mp4", ".mpeg", ".ogg", ".opus", ".ra", ".snd", ".wav", ".wma",
-}
-IMAGE_EXTENSIONS = {".avif", ".bmp", ".gif", ".heic", ".heif", ".ico", ".jp2", ".jpe", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
+AUDIO_EXTENSIONS = AUDIO_VIDEO_EXTENSIONS  # whisper handles video audio tracks too
 
 
 def enrich_chats(chats: list[Chat], config: PackageConfig) -> list[str]:

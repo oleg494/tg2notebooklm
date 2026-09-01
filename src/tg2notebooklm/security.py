@@ -39,6 +39,10 @@ def safe_slug(value: str, fallback: str = "chat", max_length: int = 72) -> str:
     return (value or fallback)[:max_length].rstrip("-_.") or fallback
 
 
-def safe_output_name(name: str, fallback: str = "attachment") -> str:
+def safe_output_name(name: str, fallback: str = "attachment", max_length: int = 120) -> str:
     cleaned = re.sub(r"[<>:\"/\\|?*\x00-\x1f]", "_", name).strip(" .")
-    return cleaned or fallback
+    if len(cleaned) <= max_length:
+        return cleaned or fallback
+    suffix = Path(cleaned).suffix[:32]
+    stem = cleaned[: max_length - len(suffix)].rstrip(" .")
+    return stem + suffix

@@ -7,5 +7,6 @@ dist/
 build/
 *.egg-info/
 output/
+_site/
 TG/
 *.pyc

@@ -132,8 +132,8 @@ def test_merged_pdf_is_byte_deterministic(tmp_path: Path) -> None:
     second_bytes = merged_second[0].read_bytes()
     assert hashlib.sha256(first_bytes).hexdigest() == hashlib.sha256(second_bytes).hexdigest()
     assert b"/ID" not in first_bytes
-    assert b"CreationDate (D" in first_bytes  # pinned date survives (colon escaped as \\072)
-    assert b"D:20000101000000Z" not in first_bytes or b"D\\07220000101000000Z" in first_bytes
+    assert b"CreationDate (D" in first_bytes  # date present (colon may be escaped as \072)
+    assert b"20000101000000Z" in first_bytes.replace(b"\\072", b":")  # pinned, not wall-clock
 
 
 def test_packing_disabled_keeps_separate_natives(tmp_path: Path) -> None:

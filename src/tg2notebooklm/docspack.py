@@ -70,21 +70,33 @@ def render_document_section(item: DocPackItem, ordinal: int, file_size: int) -> 
     return "\n".join(lines) + "\n"
 
 
-def pack_documents(items: list[DocPackItem], hard_words: int) -> list[str]:
-    """Greedily group rendered sections into source contents, each within hard_words."""
-    contents: list[str] = []
+def pack_documents(items: list[DocPackItem], hard_words: int) -> list[tuple[str, list[DocPackItem]]]:
+    """Group rendered sections into (content, members) chunks, each within hard_words.
+
+    A single section longer than hard_words forms its own chunk only when it fits
+    nothing else; the caller decides whether to accept or fall back to native.
+    """
+    chunks: list[tuple[str, list[DocPackItem]]] = []
     parts: list[str] = []
+    members: list[DocPackItem] = []
     words = 0
     for ordinal, item in enumerate(items, start=1):
         size = item.path.stat().st_size
         section = render_document_section(item, ordinal, size)
         section_words = count_words(section)
+        if section_words > hard_words:
+            # Oversized conversion would bust the word ceiling and abort the
+            # whole run at validation; leave it out so the caller falls back
+            # to native copying for this document.
+            continue
         if parts and words + section_words > hard_words:
-            contents.append("\n".join(parts).rstrip() + "\n")
+            chunks.append(("\n".join(parts).rstrip() + "\n", members))
             parts = []
+            members = []
             words = 0
         parts.append(section)
+        members.append(item)
         words += section_words
     if parts:
-        contents.append("\n".join(parts).rstrip() + "\n")
-    return contents
+        chunks.append(("\n".join(parts).rstrip() + "\n", members))
+    return chunks

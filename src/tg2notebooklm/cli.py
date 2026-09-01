@@ -76,7 +76,7 @@ def inspect_export(input_path: Path, plan: str = "standard", source_limit: int |
         "candidate_classes": classification,
         "configured_source_limit": limit,
         "estimated_chat_markdown_sources": estimated_markdown_sources,
-        "estimated_slots_after_index_and_chat": max(0, limit - 1 - estimated_markdown_sources),
+        "estimated_slots_after_index_and_chat": max(0, limit - 2 - estimated_markdown_sources),
         "note": "Estimate excludes Markdown metadata overhead and PDF atlas splitting; convert enforces exact limits.",
     }
 
