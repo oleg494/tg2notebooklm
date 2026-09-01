@@ -24,6 +24,7 @@ classifiers = [
 dependencies = [
   "beautifulsoup4>=4.12,<5",
   "Pillow>=10.1,<13",
+  "pypdf>=4,<10",
 ]
 
 [project.optional-dependencies]
@@ -39,8 +40,8 @@ transcribe = [
 tg2notebooklm = "tg2notebooklm.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/OWNER/tg2notebooklm"
-Issues = "https://github.com/OWNER/tg2notebooklm/issues"
+Homepage = "https://github.com/oleg494/tg2notebooklm"
+Issues = "https://github.com/oleg494/tg2notebooklm/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tg2notebooklm"]

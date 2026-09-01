@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Локально конвертирует Telegram Desktop JSON/HTML экспорт в источники NotebookLM.">
+  <title>tg2notebooklm — Telegram в NotebookLM локально</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#converter">К конвертеру</a>
+  <header class="masthead">
+    <a class="wordmark" href="./" aria-label="tg2notebooklm, главная">
+      <span class="wordmark-mark" aria-hidden="true">tg/</span>
+      <span>2notebooklm</span>
+    </a>
+    <span class="runtime-label">client-side / no upload</span>
+  </header>
+
+  <main>
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-copy">
+        <p class="eyebrow">Telegram Desktop → NotebookLM</p>
+        <h1 id="page-title">Чат остаётся у вас.<br>В NotebookLM попадает структура.</h1>
+        <p class="lede">JSON или HTML, сообщения, связи, фото, документы и аудит каждого решения. Конвертация выполняется в браузере; сервер не получает экспорт.</p>
+      </div>
+      <ol class="pipeline" aria-label="Этапы конвертации">
+        <li><span>01</span><strong>Выберите экспорт</strong><small>result.json или messages*.html с папкой files</small></li>
+        <li><span>02</span><strong>Соберите пакет</strong><small>Markdown, PDF-атласы, CSV и нативные файлы</small></li>
+        <li><span>03</span><strong>Загрузите sources</strong><small>ровно в пределах вашего лимита источников</small></li>
+      </ol>
+    </section>
+
+    <div class="privacy-strip" role="note">
+      <span class="privacy-light" aria-hidden="true"></span>
+      <strong>Локальная обработка.</strong>
+      <span>Python запускается в Web Worker через Pyodide. Содержимое файлов не уходит на наш сервер.</span>
+    </div>
+
+    <section class="workspace" id="converter" aria-labelledby="converter-title">
+      <div class="control-panel">
+        <div class="section-heading">
+          <p class="section-index">A / INPUT</p>
+          <h2 id="converter-title">Экспорт Telegram</h2>
+        </div>
+
+        <div class="drop-zone" id="drop-zone" role="button" tabindex="0" aria-describedby="drop-help">
+          <div class="drop-glyph" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+          <strong>Перетащите папку ChatExport</strong>
+          <span>или выберите её через системное окно</span>
+          <button class="button button-secondary" id="choose-folder" type="button">Выбрать папку</button>
+          <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
+        </div>
+        <p class="field-help" id="drop-help">Нужен полный экспорт Telegram Desktop: result.json либо messages.html и соседние файлы. Для очень больших архивов используйте CLI.</p>
+
+        <div class="selection" id="selection" hidden aria-live="polite">
+          <div>
+            <span class="selection-label">Обнаружено</span>
+            <strong id="selection-format">—</strong>
+          </div>
+          <div>
+            <span class="selection-label">Файлов</span>
+            <strong id="selection-files">—</strong>
+          </div>
+          <div>
+            <span class="selection-label">Объём</span>
+            <strong id="selection-size">—</strong>
+          </div>
+        </div>
+
+        <div class="section-heading options-heading">
+          <p class="section-index">B / BUDGET</p>
+          <h2>Параметры пакета</h2>
+        </div>
+
+        <div class="field-grid">
+          <div class="field">
+            <label for="source-limit">Лимит источников</label>
+            <select id="source-limit">
+              <option value="50" selected>Standard — 50</option>
+              <option value="100">Plus — 100</option>
+              <option value="300">Pro — 300</option>
+              <option value="500">Ultra 20 TB — 500</option>
+              <option value="600">Ultra 30 TB — 600</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="target-words">Слов на Markdown-файл</label>
+            <input id="target-words" type="number" min="1000" max="500000" step="10000" value="400000">
+            <span class="field-help">Жёсткий предел: 500 000</span>
+          </div>
+        </div>
+
+        <fieldset class="check-grid">
+          <legend>Что включать</legend>
+          <label class="check-option">
+            <input id="include-images" type="checkbox" checked>
+            <span><strong>Фото в PDF-атласы</strong><small>До 160 изображений на источник с контекстом сообщений</small></span>
+          </label>
+          <label class="check-option">
+            <input id="include-native" type="checkbox" checked>
+            <span><strong>Документы, аудио и видео</strong><small>Оригиналы занимают оставшиеся после текста слоты</small></span>
+          </label>
+        </fieldset>
+
+        <div class="budget-rail" aria-label="Выбранный лимит источников">
+          <div class="budget-label"><span>Источник-пакет</span><strong id="budget-value">50 slots</strong></div>
+          <div class="budget-track"><span id="budget-fill"></span></div>
+          <div class="budget-scale"><span>index</span><span>text</span><span>media</span><span>limit</span></div>
+        </div>
+
+        <button class="button button-primary" id="convert-button" type="button" disabled>Собрать пакет</button>
+      </div>
+
+      <aside class="evidence-panel" aria-labelledby="status-title">
+        <div class="section-heading dark-heading">
+          <p class="section-index">C / OUTPUT</p>
+          <h2 id="status-title">Журнал сборки</h2>
+        </div>
+        <div class="idle-state" id="idle-state">
+          <span class="idle-cursor" aria-hidden="true"></span>
+          <p>Выберите экспорт. Здесь появятся этапы обработки и состав готового пакета.</p>
+        </div>
+        <div id="status-area" hidden>
+          <div class="status-line" role="status" aria-live="polite">
+            <span id="status-stage">Подготовка</span>
+            <strong id="status-percent">0%</strong>
+          </div>
+          <progress id="progress" max="100" value="0">0%</progress>
+          <p class="status-message" id="status-message"></p>
+        </div>
+
+        <div class="result" id="result" hidden>
+          <div class="result-stamp">PACKAGE READY</div>
+          <div class="result-grid" id="result-grid"></div>
+          <div class="source-list-wrap">
+            <h3>Файлы в sources/</h3>
+            <ul class="source-list" id="source-list"></ul>
+          </div>
+          <button class="button button-download" id="download-button" type="button">Скачать ZIP</button>
+          <details class="report-details">
+            <summary>Отчёт конвертации</summary>
+            <pre id="report-content"></pre>
+          </details>
+          <p class="upload-hint">Распакуйте ZIP и загрузите все файлы из <code>sources/</code> в один NotebookLM. <code>manifest.json</code> и <code>report.md</code> оставьте для аудита.</p>
+        </div>
+
+        <div class="error-box" id="error-box" hidden role="alert">
+          <strong>Сборка остановлена</strong>
+          <p id="error-message"></p>
+        </div>
+      </aside>
+    </section>
+
+    <section class="cli-note" aria-labelledby="cli-title">
+      <p class="section-index">LARGE EXPORTS</p>
+      <div>
+        <h2 id="cli-title">Гигабайты медиа лучше собирать через CLI.</h2>
+        <p>Браузерная версия не загружает данные в сеть, но ограничена памятью вкладки. CLI использует диск и поддерживает локальные OCR и Whisper.</p>
+      </div>
+      <code>tg2notebooklm convert EXPORT -o OUT --plan pro</code>
+    </section>
+  </main>
+
+  <footer>
+    <span>tg2notebooklm / MIT</span>
+    <span>JSON + HTML / deterministic sources</span>
+  </footer>
+
+  <noscript>Для локальной конвертации в браузере требуется JavaScript. CLI работает без браузера.</noscript>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

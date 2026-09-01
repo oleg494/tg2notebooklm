@@ -98,6 +98,8 @@ def _build_parser() -> argparse.ArgumentParser:
     convert_parser.add_argument("--images-per-atlas", type=int, default=160, help="Preferred images per PDF atlas source")
     convert_parser.add_argument("--no-image-atlases", action="store_true", help="Keep images as metadata only")
     convert_parser.add_argument("--no-native-files", action="store_true", help="Do not copy audio/video/document files as sources")
+    convert_parser.add_argument("--no-pdf-packing", action="store_true", help="Keep small PDFs as separate native sources instead of merging them")
+    convert_parser.add_argument("--pdf-pack-max-mb", type=int, default=20, help="Max single-PDF size for merged packing (MB)")
     convert_parser.add_argument("--transcribe-audio", action="store_true", help="Locally transcribe exported audio before packing (requires transcribe extra)")
     convert_parser.add_argument("--whisper-model", default="small", help="faster-whisper model name or local path")
     convert_parser.add_argument("--whisper-language", default=None, help="Optional language code; default auto-detect")
@@ -125,6 +127,8 @@ def _config_from_args(args: argparse.Namespace) -> PackageConfig:
         inline_text_max_bytes=args.inline_text_mb * 1024 * 1024,
         include_native_files=not args.no_native_files,
         include_image_atlases=not args.no_image_atlases,
+        pack_native_pdfs=not args.no_pdf_packing,
+        pdf_pack_max_mb=args.pdf_pack_max_mb,
         transcribe_audio=args.transcribe_audio,
         whisper_model=args.whisper_model,
         whisper_language=args.whisper_language,

@@ -56,13 +56,17 @@ reserving no slots and failing at the end (bad UX after minutes of work).
 ## D4 — Determinism as a hard contract
 
 **Decision:** identical input + flags → byte-identical package. Achieved via:
-sorted candidate ordering, `reportlab ... invariant=1`, stable filename digests,
-`newline="\n"` output, no timestamps in artifacts. Verified: `diff -r` of two
-independent real-exports conversions (39,672-record JSON) exits 0.
+sorted candidate ordering, the pure-Pillow PDF atlas writer with `_pin_pdf_dates`
+pinning Creation/ModDate to a constant, stable filename digests, `newline="\n"`
+output, no timestamps in artifacts. Verified: `diff -r` of two consecutive full
+rebuilds of the real-exports JSON conversion (39,672 records, 2026-09-01) exits 0.
 
 **Evidence:** consumer Gemini Notebook treats local uploads as static copies; there
 is no update-in-place. Diffable outputs let users replace only changed sources on
-re-export.
+re-export. Known tradeoff: Pillow's PDF encoder rasterizes captions into the page
+image, so atlas captions are not text-selectable/searchable in the PDF — fine for
+Gemini Notebook's visual ingestion and citation via caption content, but not
+machine-selectable text.
 
 ## D5 — Local-only processing; enrichment optional
 
@@ -86,6 +90,52 @@ were never exported as files at all).
 because a field is present is the classic naive-parser bug (scout findings: 16 edge
 cases listed, including 10 null authors, 823 dangling reply targets, 2 distinct
 placeholder strings).
+
+## D7 — Browser edition architecture
+
+**Decision:** a static GitHub Pages site runs the same converter with Pyodide
+314.0.6 inside a module Web Worker. The user-selected export is mounted read-only
+via WORKERFS — zero-copy, nothing is uploaded. The converter ships as the same
+PyPI wheel, installed via `micropip.install(..., deps=False)`; beautifulsoup4 and
+Pillow come from the Pyodide package repo. The result is zipped in-Python with
+fixed `ZipInfo` timestamps, preserving the byte-identical rerun contract (D4).
+reportlab was removed so the pure-Pillow PDF atlas writer runs identically on
+CPython and wasm.
+
+**Evidence:** Pillow and beautifulsoup4 are published in the Pyodide package repo,
+so only the pinned tg2notebooklm wheel is fetched from the Pages origin — no
+unpinned transitive wheels from PyPI at runtime. WORKERFS wraps the browser `File`
+handles directly, so a multi-gigabyte export is never copied into JS memory.
+
+**Rejected:** running Pyodide on the page's main thread (the tab freezes during
+conversion); resolving the full dependency closure through micropip (network
+fetches, non-reproducible).
+
+## D8 — Document packing roadmap (evidence-based, researched 2026-09-01)
+
+**Decision:** Gemini Notebook natively ingests docx/pptx/epub/pdf/csv/md/txt
+([support.google.com/gemininotebook/answer/16215270](https://support.google.com/gemininotebook/answer/16215270)),
+so re-converting such documents while native slots remain is wasted fidelity.
+Accepted roadmap:
+
+1. **Pack small born-digital PDFs** into merged native PDFs, one generated cover
+   page per original (pypdf, pure-Python). Provenance is preserved at the citation
+   landing point; N documents cost 1 slot.
+2. **Optional `[docs]` extra via markitdown** (MIT, pure-Python:
+   pdfminer.six + pdfplumber + mammoth — no ML runtime, no network) converting
+   small DOCX/PPTX/EPUB/HTML/CSV to Markdown, packed into `docs_*.md` with
+   `# doc-NN: <original name>` boundary headers plus a manifest mapping.
+3. **Scan gate:** PDFs without a text layer route to native upload, never to
+   conversion (markitdown's PDF path is text-layer only).
+
+**Rejected:** docling (PyTorch + ~358 MB of first-run model downloads — breaks the
+no-network privacy claim, D5); marker (OpenRAIL-M weights + an external inference
+server); pandoc-wasm in core (GPL-2.0+ license, 58.6 MB, no PDF input; acceptable
+only in a future standalone sibling tool).
+
+**Merge-vs-provenance rule:** merging is safe only with in-source boundary headers
+naming the original document; individually citable artifacts (contracts, reports)
+stay single-slot.
 
 ## Known limitations
 

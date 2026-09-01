@@ -34,6 +34,9 @@ formats into a folder you can drag-and-drop in one go.
   can re-run, diff, and replace updated sources manually.
 - **Local & private**: no network requests; OCR and audio transcription are optional
   local extras.
+- **Runs in the browser**: a static GitHub Pages edition (Python via Pyodide in a
+  Web Worker) converts the same exports with no upload — see
+  [Browser edition](#browser-edition-github-pages).
 
 ## Install
 
@@ -44,7 +47,7 @@ pip install tg2notebooklm        # or: uv tool install tg2notebooklm
 Or from source (Python 3.11+):
 
 ```bash
-git clone https://github.com/OWNER/tg2notebooklm
+git clone https://github.com/oleg494/tg2notebooklm
 cd tg2notebooklm
 uv sync
 ```
@@ -84,6 +87,25 @@ Override with `--source-limit N` for any custom budget. The converter reserves o
 slot for the index and one for the attachment catalog, then fits chat Markdown,
 image atlases, and native files into what remains — never exceeding the limit.
 Official limits: [Google support](https://support.google.com/gemininotebook/answer/16213268).
+
+## Browser edition (GitHub Pages)
+
+The same converter runs fully local in your browser as a static page: Python
+executes in a Web Worker via [Pyodide](https://pyodide.org/) (fetched from a CDN on
+first use, then browser-cached), and your export folder is mounted read-only
+(WORKERFS) — nothing is uploaded anywhere. The output is a deterministic ZIP with
+the same layout as the CLI: `sources/` + `manifest.json` + `report.md`.
+
+Prefer the CLI when:
+
+- the export is multi-gigabyte — a browser tab holds far less in memory than a
+  script;
+- you want the optional local extras: OCR (Tesseract) or Whisper transcription;
+- you want automation (scripts, CI, batch runs).
+
+**Deploying your own:** on push to `main`, `.github/workflows/pages.yml` builds the
+wheel and the static site (`_site/`) and publishes it via GitHub Pages Actions.
+Enable this once in repo settings: *Settings* → *Pages* → *Source: GitHub Actions*.
 
 ## How the source budget is spent
 

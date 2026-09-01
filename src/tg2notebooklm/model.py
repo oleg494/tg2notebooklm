@@ -99,6 +99,8 @@ class PackageConfig:
     inline_text_max_bytes: int = 2 * 1024 * 1024
     include_native_files: bool = True
     include_image_atlases: bool = True
+    pack_native_pdfs: bool = True
+    pdf_pack_max_mb: int = 20
     transcribe_audio: bool = False
     whisper_model: str = "small"
     whisper_language: str | None = None
@@ -124,6 +126,10 @@ class PackageConfig:
             raise ValueError("enrichment_max_files cannot be negative")
         if self.images_per_page < 1 or self.images_per_atlas < 1:
             raise ValueError("image packing values must be positive")
+        if self.pdf_pack_max_mb < 1:
+            raise ValueError("pdf_pack_max_mb must be at least 1 MB")
+        if self.pdf_pack_max_mb * 1024 * 1024 > self.max_source_bytes:
+            raise ValueError("pdf_pack_max_mb cannot exceed the max_source_bytes ceiling")
 
 
 @dataclass(slots=True)

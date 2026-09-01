@@ -22,6 +22,7 @@ from tg2notebooklm.media import (
     mark_candidate,
 )
 from tg2notebooklm.model import Chat, Message, PackageConfig, PackageResult
+from tg2notebooklm.pdfpack import PdfPackItem, has_text_layer, merge_pdf_documents, pypdf_available
 from tg2notebooklm.render import count_words, render_chat_header, render_message
 from tg2notebooklm.security import safe_slug
 
@@ -142,9 +143,34 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
         native_count = 0
         selected_native_paths: set[Path] = set()
         selected_native_digests: set[str] = set()
-        for candidate in sorted(native_candidates, key=_native_priority):
+        ordered_native = sorted(native_candidates, key=_native_priority)
+        packed_groups = _pack_pdf_groups(ordered_native, config, selected_native_digests, slots_remaining)
+        for merged_name, group in packed_groups:
+            merged_path = sources_dir / merged_name
+            items = [
+                PdfPackItem(
+                    path=candidate.path,
+                    display_name=candidate.display_name,
+                    chat_name=candidate.chat.name,
+                    message_id=candidate.message.id,
+                    timestamp=candidate.message.timestamp,
+                    author=candidate.message.author,
+                )
+                for candidate in group
+            ]
+            merge_pdf_documents(items, merged_path)
+            native_count += 1
+            slots_remaining -= 1
+            for candidate in group:
+                selected_native_paths.add(candidate.path)
+                selected_native_digests.add(file_digest(candidate.path))
+                mark_candidate(candidate, "native_source", source=merged_name)
+            source_records.append(_source_record(merged_path, "native_attachment"))
+        packed_paths = {candidate.path for _, group in packed_groups for candidate in group}
+        for candidate in ordered_native:
             if candidate.path in selected_native_paths:
-                mark_candidate(candidate, "native_source_duplicate", reason="Same file already selected through another message")
+                if candidate.path not in packed_paths:
+                    mark_candidate(candidate, "native_source_duplicate", reason="Same file already selected through another message")
                 continue
             if not config.include_native_files:
                 mark_candidate(candidate, "metadata_only", reason="Native source copying disabled")
@@ -447,6 +473,59 @@ def _native_priority(candidate: MediaCandidate) -> tuple[int, int, int, int, str
     return (category, kind_boost, -candidate.path.stat().st_size, candidate.message.sequence, str(candidate.path).casefold())
 
 
+def _pack_pdf_groups(
+    ordered: list[MediaCandidate],
+    config: PackageConfig,
+    selected_digests: set[str],
+    slots_remaining: int,
+) -> list[tuple[str, list[MediaCandidate]]]:
+    """Greedily group small born-digital PDFs into merged native files (D8 rule 1).
+
+    Eligibility: packing enabled, .pdf suffix, within pdf_pack_max_mb, text layer
+    present, content digest not already selected. Scan-gated or oversize PDFs and
+    lone leftovers stay out and fall through to single-slot copying.
+    """
+    if not config.pack_native_pdfs or not config.include_native_files:
+        return []
+    if not pypdf_available():
+        return []
+    pack_max_bytes = config.pdf_pack_max_mb * 1024 * 1024
+    eligible: list[MediaCandidate] = []
+    for candidate in ordered:
+        if candidate.suffix != ".pdf":
+            continue
+        if candidate.path.stat().st_size > pack_max_bytes:
+            continue
+        digest = file_digest(candidate.path)
+        if digest in selected_digests:
+            continue
+        if not has_text_layer(candidate.path):
+            continue
+        eligible.append(candidate)
+    if len(eligible) < 2 or slots_remaining < 1:
+        return []
+    max_bytes = config.max_source_bytes
+    groups: list[tuple[str, list[MediaCandidate]]] = []
+    current: list[MediaCandidate] = []
+    current_bytes = 0
+    for candidate in eligible:
+        size = candidate.path.stat().st_size
+        if current and current_bytes + size > max_bytes:
+            groups.append(current)
+            current = []
+            current_bytes = 0
+        current.append(candidate)
+        current_bytes += size
+    if current:
+        groups.append(current)
+    packed: list[tuple[str, list[MediaCandidate]]] = []
+    for ordinal, group in enumerate(groups, start=1):
+        if ordinal > slots_remaining:
+            break
+        packed.append((f"native_docs_{ordinal:03d}.pdf", group))
+    return packed
+
+
 def _render_index(
     chats: list[Chat],
     sources: list[SourceRecord],
@@ -600,8 +679,9 @@ def _config_dict(config: PackageConfig) -> dict[str, Any]:
         "inline_text_max_bytes": config.inline_text_max_bytes,
         "include_native_files": config.include_native_files,
         "include_image_atlases": config.include_image_atlases,
+        "pack_native_pdfs": config.pack_native_pdfs,
+        "pdf_pack_max_mb": config.pdf_pack_max_mb,
         "transcribe_audio": config.transcribe_audio,
-        "whisper_model": config.whisper_model,
         "whisper_language": config.whisper_language,
         "ocr_images": config.ocr_images,
         "ocr_languages": config.ocr_languages,
