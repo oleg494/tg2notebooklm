@@ -49,7 +49,6 @@ class MediaCandidate:
     attachment: Attachment
     role: str = "primary"
     records: list[dict[str, Any]] = field(default_factory=list)
-    contexts: list[tuple[Chat, Message, Attachment, str]] = field(default_factory=list)
 
     @property
     def suffix(self) -> str:
@@ -69,10 +68,9 @@ class AtlasResult:
     failed: list[tuple[MediaCandidate, str]]
 
 
-def collect_candidates(chats: list[Chat]) -> tuple[list[MediaCandidate], list[dict[str, Any]], dict[int, dict[str, Any]]]:
+def collect_candidates(chats: list[Chat]) -> tuple[list[MediaCandidate], list[dict[str, Any]]]:
     candidates_by_key: dict[tuple[Path, str], MediaCandidate] = {}
     records: list[dict[str, Any]] = []
-    record_by_attachment: dict[int, dict[str, Any]] = {}
 
     for chat in chats:
         root = chat.export_root
@@ -98,7 +96,6 @@ def collect_candidates(chats: list[Chat]) -> tuple[list[MediaCandidate], list[di
                     "decision": "pending" if attachment.available and attachment.path else "unavailable",
                 }
                 records.append(record)
-                record_by_attachment[id(attachment)] = record
                 if attachment.available and attachment.path:
                     _add_candidate(candidates_by_key, attachment.path, chat, message, attachment, "primary", record)
                 if attachment.thumbnail_path:
@@ -110,7 +107,7 @@ def collect_candidates(chats: list[Chat]) -> tuple[list[MediaCandidate], list[di
         candidates_by_key.values(),
         key=lambda item: (item.message.sequence, item.chat.name.casefold(), str(item.path).casefold(), item.role),
     )
-    return candidates, records, record_by_attachment
+    return candidates, records
 
 
 def classify_candidate(candidate: MediaCandidate, config: PackageConfig) -> str:
@@ -178,11 +175,19 @@ def build_image_atlas(candidates: list[MediaCandidate], output_path: Path, confi
 
 
 def copy_native_source(candidate: MediaCandidate, output_dir: Path, ordinal: int) -> Path:
-    digest = hashlib.sha256(str(candidate.path).encode("utf-8", errors="surrogatepass")).hexdigest()[:8]
+    digest = _file_digest(candidate.path)
     original_name = safe_output_name(candidate.path.name)
     target = output_dir / f"native_{ordinal:03d}__{digest}__{original_name}"
     shutil.copyfile(candidate.path, target)
     return target
+
+
+def _file_digest(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(block)
+    return hasher.hexdigest()[:8]
 
 
 def mark_candidate(candidate: MediaCandidate, decision: str, *, source: str | None = None, reason: str | None = None) -> None:
@@ -209,7 +214,6 @@ def _add_candidate(
     if key not in candidates:
         candidates[key] = MediaCandidate(resolved, chat, message, attachment, role)
     candidates[key].records.append(record)
-    candidates[key].contexts.append((chat, message, attachment, role))
 
 
 def _relative_path(root: Path | None, path: Path | None) -> str | None:

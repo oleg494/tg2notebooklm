@@ -84,7 +84,7 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
         sources_dir = staging / "sources"
         sources_dir.mkdir()
         warnings = enrich_chats(chats, config)
-        candidates, attachment_records, _ = collect_candidates(chats)
+        candidates, attachment_records = collect_candidates(chats)
         media_candidates = _deduplicate_candidates(candidates)
 
         blocks = _text_blocks(chats, config)
@@ -122,16 +122,16 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
                     continue
                 created = _create_bounded_atlases(group, sources_dir, atlas_count + 1, config, slots_remaining)
                 for result in created:
+                    for candidate, reason in result.failed:
+                        mark_candidate(candidate, "metadata_only", reason=f"Image atlas decoding failed: {reason}")
                     if not result.included:
                         continue
                     atlas_count += 1
                     slots_remaining -= 1
                     for candidate in result.included:
                         mark_candidate(candidate, "image_atlas", source=result.path.name)
-                    for candidate, reason in result.failed:
-                        mark_candidate(candidate, "metadata_only", reason=f"Image atlas decoding failed: {reason}")
                     source_records.append(_source_record(result.path, "image_atlas"))
-                if len(created) > slots_remaining + len(created):
+                if slots_remaining <= 0:
                     break
         elif image_candidates:
             reason = "Image atlases disabled" if not config.include_image_atlases else "No source slots remained for image atlases"
@@ -207,6 +207,7 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
         _write_text(staging / "report.md", _render_report(manifest))
 
         if output_dir.exists():
+            _ensure_safe_replacement(output_dir, chats)
             if output_dir.is_dir():
                 shutil.rmtree(output_dir)
             else:
@@ -226,6 +227,20 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
+
+
+def _ensure_safe_replacement(output_dir: Path, chats: list[Chat]) -> None:
+    """Refuse --force replacement that would delete the export itself or its parent."""
+    for chat in chats:
+        root = chat.export_root
+        if root is None:
+            continue
+        resolved_root = root.resolve()
+        if output_dir == resolved_root or resolved_root in output_dir.parents or output_dir in resolved_root.parents:
+            raise ValueError(
+                f"Refusing to replace {output_dir}: it overlaps the Telegram export at {resolved_root}. "
+                "Choose an output directory outside the export."
+            )
 
 
 def _text_blocks(chats: list[Chat], config: PackageConfig) -> list[TextBlock]:
@@ -358,8 +373,8 @@ def _corpus_header(chats: list[Chat]) -> str:
 def _text_source_name(chunk: TextChunk, ordinal: int, total: int) -> str:
     unique_chats = list(dict.fromkeys(block.chat.name for block in chunk.blocks))
     scope = safe_slug(unique_chats[0]) if len(unique_chats) == 1 else "telegram-corpus"
-    first = safe_slug(chunk.blocks[0].message.id, "first", 24)
-    last = safe_slug(chunk.blocks[-1].message.id, "last", 24)
+    first = safe_slug(chunk.blocks[0].message.id, "first", 24) if chunk.blocks else "empty"
+    last = safe_slug(chunk.blocks[-1].message.id, "last", 24) if chunk.blocks else "empty"
     return f"chat_{ordinal:03d}-of-{total:03d}__{scope}__msgs-{first}-{last}.md"
 
 
@@ -371,10 +386,8 @@ def _deduplicate_candidates(candidates: list[MediaCandidate]) -> list[MediaCandi
             by_path[candidate.path] = candidate
             continue
         existing.records.extend(record for record in candidate.records if record not in existing.records)
-        existing.contexts.extend(context for context in candidate.contexts if context not in existing.contexts)
         if existing.role == "thumbnail" and candidate.role == "primary":
             candidate.records = existing.records
-            candidate.contexts = existing.contexts
             by_path[candidate.path] = candidate
     return list(by_path.values())
 
@@ -548,7 +561,7 @@ def _source_record(path: Path, kind: str, chunk: TextChunk | None = None) -> Sou
     return SourceRecord(
         name=path.name,
         kind=kind,
-        word_count=count_words(data.decode("utf-8")) if path.suffix.casefold() == ".md" else None,
+        word_count=count_words(data.decode("utf-8", errors="replace")) if path.suffix.casefold() == ".md" else None,
         byte_count=len(data),
         sha256=hashlib.sha256(data).hexdigest(),
         chats=list(dict.fromkeys(block.chat.name for block in chunk.blocks)) if chunk else [],

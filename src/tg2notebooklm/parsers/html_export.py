@@ -107,8 +107,8 @@ def _parse_default(node: Tag, message_id: str, sequence: int, author: str | None
     text_node = _direct_child(content_body, "div", "text") if content_body else None
     text = _html_fragment_to_markdown(text_node) if text_node else ""
     poll = _parse_html_poll(content_body)
+    attachments = _parse_html_attachments(content_body, root, message_id) + _parse_html_media_wraps(content_body, root, message_id)
     reactions = _parse_html_reactions(outer_body)
-    attachments = _parse_html_attachments(content_body, root, message_id)
     inline_buttons: list[dict[str, Any]] = []
     button_table = _direct_child(outer_body, "table", "bot_buttons_table") if outer_body else None
     if button_table:
@@ -202,6 +202,54 @@ def _parse_html_attachments(body: Tag | None, root: Path, message_id: str) -> li
                 reason=reason,
                 message_id=message_id,
                 metadata={key: value for key, value in {"description": description, "status": status}.items() if value},
+            )
+        )
+    return attachments
+
+def _parse_html_media_wraps(body: Tag | None, root: Path, message_id: str) -> list[Attachment]:
+    """Parse photo_wrap/sticker_wrap blocks present when HTML export downloaded media."""
+    if body is None:
+        return []
+    attachments: list[Attachment] = []
+    seen: set[str | None] = set()
+    for wrap in body.select(":scope > .photo_wrap, :scope > .sticker_wrap"):
+        classes = set(wrap.get("class", []))
+        kind = "sticker" if "sticker_wrap" in classes else "photo"
+        anchor = wrap.find("a", href=True)
+        image = wrap.find("img", src=True)
+        raw_reference = None
+        if anchor is not None:
+            raw_reference = anchor.get("href")
+        elif image is not None:
+            raw_reference = image.get("src")
+        reference = str(raw_reference) if raw_reference else None
+        if reference in seen:
+            continue
+        seen.add(reference)
+        path = None
+        available = False
+        reason = None
+        if reference:
+            try:
+                candidate = resolve_export_path(root, reference)
+                if candidate.is_file():
+                    path, available = candidate, True
+                else:
+                    reason = "Referenced file is missing from export"
+            except UnsafePathError as exc:
+                reason = str(exc)
+        else:
+            reason = "Downloaded media block has no file reference"
+        title = anchor.get("title") if anchor is not None else None
+        attachments.append(
+            Attachment(
+                reference=reference,
+                path=path,
+                name=(path.name if path else (title or kind)),
+                kind=kind,
+                available=available,
+                reason=reason,
+                message_id=message_id,
             )
         )
     return attachments

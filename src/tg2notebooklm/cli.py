@@ -48,7 +48,7 @@ def inspect_export(input_path: Path, plan: str = "standard", source_limit: int |
     chats = parse_export(resolved)
     limit = source_limit or PLAN_LIMITS[plan]
     config = PackageConfig(source_limit=limit)
-    candidates, attachments, _ = collect_candidates(chats)
+    candidates, attachments = collect_candidates(chats)
     classification: dict[str, int] = {}
     for candidate in candidates:
         kind = classify_candidate(candidate, config)

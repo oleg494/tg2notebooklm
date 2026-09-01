@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -102,6 +101,8 @@ def _render_reaction(reaction: Any) -> str:
 def _render_service(message: Message) -> str:
     details = message.service_details
     action = (message.service_action or "service").replace("_", " ")
+    if message.text.strip():
+        return f"[Service event: {message.text.strip()}]"
     parts = [action]
     if details.get("title"):
         parts.append(f"title={details['title']}")

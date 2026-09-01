@@ -23,8 +23,7 @@ classifiers = [
 ]
 dependencies = [
   "beautifulsoup4>=4.12,<5",
-  "Pillow>=10,<13",
-  "openpyxl>=3.1,<4",
+  "Pillow>=10.1,<13",
   "reportlab>=4.2,<5",
 ]
 

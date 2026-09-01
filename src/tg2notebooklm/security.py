@@ -13,6 +13,8 @@ def resolve_export_path(export_root: Path, reference: str) -> Path:
     """Resolve an untrusted Telegram path without allowing export-root escape."""
     if not reference or reference.startswith("("):
         raise UnsafePathError("reference is not a local file path")
+    if "\x00" in reference:
+        raise UnsafePathError(f"reference contains a NUL byte: {reference!r}")
 
     decoded = unquote(reference).replace("\\", "/")
     posix = PurePosixPath(decoded)
@@ -22,11 +24,11 @@ def resolve_export_path(export_root: Path, reference: str) -> Path:
         raise UnsafePathError(f"unsafe attachment path rejected: {reference}")
 
     root = export_root.resolve()
-    candidate = root.joinpath(*posix.parts).resolve()
     try:
+        candidate = root.joinpath(*posix.parts).resolve()
         candidate.relative_to(root)
     except ValueError as exc:
-        raise UnsafePathError(f"attachment escapes export root: {reference}") from exc
+        raise UnsafePathError(f"attachment escapes export root or is not a valid path: {reference}") from exc
     return candidate
 
 
