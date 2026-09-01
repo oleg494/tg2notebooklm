@@ -149,6 +149,7 @@ h1 {
 
 .drop-zone {
   display: grid;
+  place-items: center;
   min-height: 260px;
   padding: 28px;
   border: 1px dashed #7d9ab4;
