@@ -257,6 +257,7 @@ noscript { display: block; padding: 20px; color: #fff; background: var(--error);
   .pipeline li { padding: 8px 0; }
   .pipeline small { display: none; }
   .evidence-panel { min-height: 420px; }
+  .cli-note { grid-template-columns: 1fr; gap: 12px; }
   .cli-note code { overflow-x: auto; }
 }
 .warning-strip {
