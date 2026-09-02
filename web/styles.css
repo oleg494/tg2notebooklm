@@ -253,9 +253,10 @@ noscript { display: block; padding: 20px; color: #fff; background: var(--error);
 @keyframes blink { 50% { opacity: 0; } }
 @media (max-width: 900px) {
   .hero, .workspace { grid-template-columns: 1fr; }
-  .hero { gap: 38px; padding-top: 52px; }
+  .hero { gap: 24px; padding-top: 34px; }
+  .pipeline li { padding: 8px 0; }
+  .pipeline small { display: none; }
   .evidence-panel { min-height: 420px; }
-  .cli-note { grid-template-columns: 1fr; gap: 12px; }
   .cli-note code { overflow-x: auto; }
 }
 .warning-strip {
@@ -270,9 +271,9 @@ noscript { display: block; padding: 20px; color: #fff; background: var(--error);
 @media (max-width: 600px) {
   .masthead, main, footer { width: min(100% - 24px, 1180px); }
   .runtime-label { display: none; }
-  .hero { padding: 40px 0 32px; }
-  h1 { font-size: clamp(38px, 12vw, 54px); }
-  .lede { font-size: 16px; }
+  .hero { padding: 28px 0 22px; }
+  h1 { font-size: clamp(30px, 8vw, 40px); }
+  .lede { font-size: 15px; }
   .privacy-strip { align-items: flex-start; flex-wrap: wrap; }
   .control-panel, .evidence-panel { padding: 24px 18px; }
   .field-grid, .selection, .result-grid { grid-template-columns: 1fr; }

@@ -20,9 +20,9 @@
   <main>
     <section class="hero" aria-labelledby="page-title">
       <div class="hero-copy">
-        <p class="eyebrow">Telegram Desktop → NotebookLM</p>
+        <p class="eyebrow">Экспорт Telegram или любая папка → NotebookLM</p>
         <h1 id="page-title">Чат остаётся у вас.<br>В NotebookLM попадает структура.</h1>
-        <p class="lede">JSON или HTML, сообщения, связи, фото, документы и аудит каждого решения. Конвертация выполняется в браузере; сервер не получает экспорт.</p>
+        <p class="lede">Экспорт Telegram (JSON/HTML) или любая папка с файлами: сообщения, связи, фото, документы и аудит каждого решения. Конвертация выполняется в браузере; сервер не получает данные.</p>
       </div>
       <ol class="pipeline" aria-label="Этапы конвертации">
         <li><span>01</span><strong>Выберите экспорт</strong><small>result.json или messages*.html с папкой files</small></li>
@@ -48,12 +48,12 @@
           <div class="drop-glyph" aria-hidden="true">
             <span></span><span></span><span></span>
           </div>
-          <strong>Перетащите папку ChatExport</strong>
-          <span>или выберите её через системное окно</span>
+          <strong>Перетащите экспорт или папку с файлами</strong>
+          <span>result.json / messages.html либо любые файлы</span>
           <button class="button button-secondary" id="choose-folder" type="button">Выбрать папку</button>
           <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
         </div>
-        <p class="field-help" id="drop-help">Нужен полный экспорт Telegram Desktop: result.json либо messages.html и соседние файлы. Для очень больших архивов используйте CLI.</p>
+        <p class="field-help" id="drop-help">Telegram Desktop экспорт (result.json или messages.html с папкой files) или любая папка с файлами. Для очень больших архивов используйте CLI.</p>
 
         <div class="selection" id="selection" hidden aria-live="polite">
           <div>
