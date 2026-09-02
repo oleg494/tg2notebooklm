@@ -154,29 +154,29 @@ Profile on the real 39,672-message export, before → after:
 - Windows `Path.resolve()` storm in `collect_candidates` (~2.3 s) → per-run
   resolve cache; `file_digest` recomputed up to 3× per file → `digest_of` cache.
 
-End-to-end: 28.6 s → 13.4 s (2.1×). Output verified byte-identical to the
-pre-optimization build (D4 holds; chunk boundaries unchanged).
+## D10 — Universal file-dump mode (shipped 2026-09-02)
 
-**Parallelism rule (future):** any worker must be pure (input candidate →
-output result); all mutation, ordinal assignment, and assembly stay serial in
-the existing sorted order, gated by the two-run byte-diff test. PIL releases
-the GIL, so a ThreadPool for image normalization is the only sanctioned form;
-skip it under Pyodide (`sys.platform == "emscripten"`, no crossOriginIsolated
-on GitHub Pages).
+**Decision:** `convert`/`inspect` now accept any non-empty folder of files in
+addition to Telegram exports. A parser (`parsers/file_dump.py`) wraps the
+folder in a synthetic `Chat(input_format="file_dump", kind="folder_dump")`
+with one metadata-only `Message` per file (id `file-NNNNNN`, deterministic
+casefolded-path order, 20k file cap); every existing packing lane applies
+unchanged: small text files inline into Markdown chunks, images go to PDF
+atlases, born-digital PDFs merge via pypdf, DOCX/PPTX convert via `[docs]`,
+the rest copy natively.
 
-## D10 — Universal file-dump mode (sketch, not built)
+Detection order in `detect.py`: `result.json` → JSON export;
+`messages.html` → HTML export; any other folder containing at least one file
+→ file dump. Wording in chunk headers, corpus header, index, and query hints
+is format-driven (no "Telegram" claims for dumps). Cap rationale: a dump is a
+manual selection, not an export; beyond ~20k files the source budget excludes
+most of it anyway.
 
-**Idea:** accept a plain folder of arbitrary files (docs, text, audio, video,
-photos) with no chat semantics, and build the same source-budgeted package:
-text/markdown → merged `docs_*.md` chunks with `# file-NN:` boundary headers;
-born-digital PDFs → pypdf packing; images → atlases; everything else → native
-copies; budget lanes already exist (D8) and are format-agnostic.
+Web edition: `normalizeExport` falls back to `kind: "file_dump"` when neither
+export marker is present; the worker's `parse_export` picks the same path.
 
-Sketch: a parser that walks the folder, wraps each file in a synthetic
-`Chat(name="dump", kind="folder")` + one `Message` per file (metadata-only),
-then reuses `build_package` untouched. Real cost is wording (`render_chat_header`
-/ index say "Telegram") and `detect.py` sniffing, both shared with any future
-second format. Not started until a real user asks for it (YAGNI).
+**Not built (YAGNI):** per-subfolder chats, mtime-based ordering, glob
+filters. None requested; the source budget dominates at this scale.
 
 ## Known limitations
 

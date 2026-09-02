@@ -158,7 +158,8 @@ function normalizeExport(entries) {
   const jsonRoots = safeEntries.filter(({ path }) => path.toLowerCase().endsWith("/result.json") || path.toLowerCase() === "result.json");
   const htmlRoots = safeEntries.filter(({ path }) => /(^|\/)messages\.html$/i.test(path));
   if (!jsonRoots.length && !htmlRoots.length) {
-    throw new Error("В папке нет result.json или messages.html. Выберите корень экспорта Telegram Desktop, а не отдельную папку files.");
+    if (safeEntries.length) return { kind: "file_dump", files: safeEntries };
+    throw new Error("Папка пуста. Выберите экспорт Telegram (result.json / messages.html) или папку с файлами.");
   }
   if (jsonRoots.length + htmlRoots.length > 1) {
     throw new Error("Выбрано несколько экспортов. Конвертируйте каждую папку ChatExport отдельно.");

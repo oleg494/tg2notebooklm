@@ -334,7 +334,7 @@ def _ensure_safe_replacement(output_dir: Path, chats: list[Chat]) -> None:
         resolved_root = root.resolve()
         if output_dir == resolved_root or resolved_root in output_dir.parents or output_dir in resolved_root.parents:
             raise ValueError(
-                f"Refusing to replace {output_dir}: it overlaps the Telegram export at {resolved_root}. "
+                f"Refusing to replace {output_dir}: it overlaps the export at {resolved_root}. "
                 "Choose an output directory outside the export."
             )
 
@@ -467,6 +467,14 @@ def _would_exceed(chunk: TextChunk, text: str, target_words: int, max_bytes: int
 
 
 def _corpus_header(chats: list[Chat]) -> str:
+    if all(chat.input_format == "file_dump" for chat in chats):
+        files = sum(len(chat.messages) for chat in chats)
+        return (
+            "# File dump corpus\n\n"
+            "This source was generated locally by tg2notebooklm from a local folder. "
+            "File ordinals, names, sizes, and inline text of small text files are retained.\n"
+            f"File dumps represented in this source set: {len(chats)} ({files:,} files).\n"
+        )
     return (
         "# Telegram export corpus\n\n"
         "This source was generated locally by tg2notebooklm. Message IDs, reply targets, dates, authors, "
@@ -477,7 +485,7 @@ def _corpus_header(chats: list[Chat]) -> str:
 
 def _text_source_name(chunk: TextChunk, ordinal: int, total: int) -> str:
     unique_chats = list(dict.fromkeys(block.chat.name for block in chunk.blocks))
-    scope = safe_slug(unique_chats[0]) if len(unique_chats) == 1 else "telegram-corpus"
+    scope = safe_slug(unique_chats[0]) if len(unique_chats) == 1 else "corpus"
     first = safe_slug(chunk.blocks[0].message.id, "first", 24) if chunk.blocks else "empty"
     last = safe_slug(chunk.blocks[-1].message.id, "last", 24) if chunk.blocks else "empty"
     return f"chat_{ordinal:03d}-of-{total:03d}__{scope}__msgs-{first}-{last}.md"
@@ -606,8 +614,12 @@ def _render_index(
     attachments: list[dict[str, Any]],
     warnings: list[str],
 ) -> str:
+    dump_mode = all(chat.input_format == "file_dump" for chat in chats)
+    title = "File dump → Gemini Notebook source index" if dump_mode else "Telegram → Gemini Notebook source index"
+    section = "## Dumps" if dump_mode else "## Chats"
+    label = "files" if dump_mode else "records"
     lines = [
-        "# Telegram → Gemini Notebook source index",
+        f"# {title}",
         "",
         "Upload **every file in this `sources` directory** to one Gemini Notebook notebook. "
         "Keep `manifest.json` and `report.md` locally for audit; they are not source slots.",
@@ -619,12 +631,12 @@ def _render_index(
         f"- Chat Markdown hard ceiling: {config.hard_words:,} words",
         f"- Uploaded-source byte ceiling used by the converter: {config.max_source_bytes:,}",
         "",
-        "## Chats",
+        section,
         "",
     ]
     for chat in chats:
         ids = [message.id for message in chat.messages]
-        lines.append(f"- **{chat.name}** — {len(chat.messages):,} records; IDs {ids[0] if ids else 'none'}…{ids[-1] if ids else 'none'}; input `{chat.input_format}`")
+        lines.append(f"- **{chat.name}** — {len(chat.messages):,} {label}; IDs {ids[0] if ids else 'none'}…{ids[-1] if ids else 'none'}; input `{chat.input_format}`")
     lines.extend(["", "## Sources", ""])
     for source in sources:
         details = [source.kind, f"{source.byte_count:,} bytes"]
@@ -635,30 +647,29 @@ def _render_index(
         lines.append(f"- `{source.name}` — " + "; ".join(details))
     unavailable = sum(not item["available"] for item in attachments)
     excluded = sum(item.get("decision") == "excluded_source_budget" for item in attachments)
+    missing_label = "Not found on disk" if dump_mode else "Not present in Telegram export"
     lines.extend([
         "",
         "## Attachment audit",
         "",
         f"- Attachment records: {len(attachments):,}",
-        f"- Not present in Telegram export: {unavailable:,}",
+        f"- {missing_label}: {unavailable:,}",
         f"- Excluded only because the source budget was full: {excluded:,}",
-        "- Exact per-message decisions and missing-file reasons are in local `manifest.json`. "
+        "- Exact per-file decisions and missing-file reasons are in local `manifest.json`. "
         "It is intentionally outside `sources/`; upload it separately only if you want the audit data analyzed.",
     ])
     if warnings:
         lines.extend(["", "## Warnings", ""])
         lines.extend(f"- {warning}" for warning in warnings)
-    lines.extend([
-        "",
-        "## Query hints",
-        "",
-        "Ask with a chat name, date range, Telegram message ID, author, topic, attachment name, or source filename. "
-        "For example: `Compare messages 1200–1500 with the images cited in images_001.pdf.`",
-        "",
-    ])
+    hint = (
+        "Ask with a file name, its ordinal (`file-000123`), text content, or source filename. "
+        "For example: `Which dumped files mention budget planning?`"
+        if dump_mode
+        else "Ask with a chat name, date range, Telegram message ID, author, topic, attachment name, or source filename. "
+        "For example: `Compare messages 1200–1500 with the images cited in images_001.pdf.`"
+    )
+    lines.extend(["", "## Query hints", "", hint, ""])
     return "\n".join(lines)
-
-
 def _render_report(manifest: dict[str, Any]) -> str:
     summary = manifest["summary"]
     decisions: dict[str, int] = {}

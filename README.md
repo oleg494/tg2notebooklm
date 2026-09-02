@@ -74,6 +74,20 @@ uv sync
    and upload **every file inside `my-notebook-package/sources/`**.
    Keep `manifest.json` and `report.md` locally (they are not source slots).
 
+### Any folder of files (no Telegram needed)
+
+Point `convert` at an ordinary folder — documents, notes, code, media — and it
+becomes the same source-budgeted package: small text files are inlined into
+Markdown chunks, images go to PDF atlases, born-digital PDFs get merged, and
+everything else is copied natively:
+
+```bash
+tg2notebooklm convert path/to/my-folder --plan standard
+```
+
+Detection is automatic: folders with `result.json`/`messages.html` are parsed
+as Telegram exports; any other non-empty folder becomes a file dump.
+
 ### Plans and budgets
 
 | Flag | Sources per notebook |

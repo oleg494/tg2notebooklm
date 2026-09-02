@@ -131,7 +131,7 @@ def test_force_refuses_to_replace_export_root(tmp_path: Path) -> None:
     from tg2notebooklm.parsers.json_export import parse_json_export
 
     chats = parse_json_export(export_root / "result.json")
-    with pytest.raises(ValueError, match="overlaps the Telegram export"):
+    with pytest.raises(ValueError, match="overlaps the export"):
         build_package(chats, export_root, PackageConfig(source_limit=4, force=True))
     assert (export_root / "result.json").exists()
 

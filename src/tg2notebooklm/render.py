@@ -21,6 +21,15 @@ def count_words(text: str) -> int:
 
 def render_chat_header(chat: Chat, part: int | None = None) -> str:
     suffix = f" — part {part:03d}" if part is not None else ""
+    if chat.input_format == "file_dump":
+        lines = [
+            f"# File dump: {chat.name}{suffix}",
+            "",
+            f"- Source: local folder (recursive), {len(chat.messages):,} files",
+            "- Message markers are file ordinals (`file-NNNNNN`); attachments are the original files.",
+            "",
+        ]
+        return "\n".join(lines)
     lines = [
         f"# Telegram chat: {chat.name}{suffix}",
         "",
@@ -43,10 +52,14 @@ def render_message(chat: Chat, message: Message, inline_text_max_bytes: int) -> 
     if message.kind == "date_marker":
         return f"\n## {message.text}\n"
 
-    date_label = _date_label(message.timestamp)
-    author = message.author or message.author_id or "Unknown/deleted account"
-    heading = f"### {date_label} · {author} · msg {message.id}"
+    if chat.input_format == "file_dump":
+        heading = f"### File {message.sequence:,} · {chat.name} · {message.id}"
+    else:
+        date_label = _date_label(message.timestamp)
+        author = message.author or message.author_id or "Unknown/deleted account"
+        heading = f"### {date_label} · {author} · msg {message.id}"
     lines = [heading]
+
     metadata: list[str] = []
     if message.kind == "service":
         metadata.append(f"service={message.service_action or 'unknown'}")

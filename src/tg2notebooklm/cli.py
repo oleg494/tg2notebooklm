@@ -104,17 +104,17 @@ def inspect_export(input_path: Path, plan: str = "standard", source_limit: int |
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tg2notebooklm",
-        description="Convert Telegram Desktop exports into source-budgeted Gemini Notebook / NotebookLM files.",
+        description="Convert Telegram Desktop exports — or any folder of files — into source-budgeted Gemini Notebook / NotebookLM files.",
     )
     parser.add_argument("--version", action="version", version="tg2notebooklm 0.1.0")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    inspect_parser = subparsers.add_parser("inspect", help="Inspect an export without writing chat content")
-    inspect_parser.add_argument("input", type=Path, help="Telegram export directory, result.json, or messages.html")
+    inspect_parser = subparsers.add_parser("inspect", help="Inspect an export or folder without writing chat content")
+    inspect_parser.add_argument("input", type=Path, help="Telegram export directory/result.json/messages.html, or any folder of files")
     _add_budget_arguments(inspect_parser)
 
     convert_parser = subparsers.add_parser("convert", help="Build a Gemini Notebook source package")
-    convert_parser.add_argument("input", type=Path, help="Telegram export directory, result.json, or messages.html")
+    convert_parser.add_argument("input", type=Path, help="Telegram export directory/result.json/messages.html, or any folder of files")
     convert_parser.add_argument("--output", "-o", type=Path, default=Path("tg2notebooklm-out"), help="Output directory (default: ./tg2notebooklm-out)")
     _add_budget_arguments(convert_parser)
     convert_parser.add_argument("--target-words", type=int, default=400_000, help="Preferred words per chat Markdown source")
