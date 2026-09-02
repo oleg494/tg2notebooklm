@@ -15,7 +15,8 @@ TEXT_ATTACHMENT_EXTENSIONS = {
 
 
 def count_words(text: str) -> int:
-    return len(re.findall(r"\S+", text, flags=re.UNICODE))
+    return len(text.split())
+
 
 
 def render_chat_header(chat: Chat, part: int | None = None) -> str:
@@ -34,11 +35,7 @@ def render_chat_header(chat: Chat, part: int | None = None) -> str:
 
 def code_fence_for(text: str) -> str:
     """Return a backtick fence longer than any backtick run inside text."""
-    longest = 0
-    run = 0
-    for char in text:
-        run = run + 1 if char == "`" else 0
-        longest = max(longest, run)
+    longest = max(map(len, re.findall(r"`+", text)), default=0)
     return "`" * max(3, longest + 1)
 
 

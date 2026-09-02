@@ -40,9 +40,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             chats = parse_export(args.input)
             result = build_package(chats, args.output, config)
             payload = result.as_dict()
+            for warning in result.warnings:
+                print(f"warning: {warning}", file=sys.stderr)
+            print(
+                f"Done: {result.source_count} sources in {args.output}. "
+                "Upload the files from sources/ to your notebook; keep manifest.json and report.md for reference.",
+                file=sys.stderr,
+            )
         print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
         return 0
-    except (FileNotFoundError, FileExistsError, ValueError) as exc:
+    except FileNotFoundError as exc:
+        hint = ""
+        if getattr(args, "input", None) is not None:
+            hint = f" Check the path or run: tg2notebooklm inspect {args.input}"
+        print(f"error: {exc}.{hint}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as exc:
+        print(
+            f"error: {args.input} is not valid JSON ({exc}). "
+            "The export may be truncated — re-export from Telegram Desktop (Settings > Advanced > Export Telegram data).",
+            file=sys.stderr,
+        )
+        return 2
+    except (FileExistsError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
@@ -95,7 +115,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     convert_parser = subparsers.add_parser("convert", help="Build a Gemini Notebook source package")
     convert_parser.add_argument("input", type=Path, help="Telegram export directory, result.json, or messages.html")
-    convert_parser.add_argument("--output", "-o", type=Path, required=True, help="New output directory")
+    convert_parser.add_argument("--output", "-o", type=Path, default=Path("tg2notebooklm-out"), help="Output directory (default: ./tg2notebooklm-out)")
     _add_budget_arguments(convert_parser)
     convert_parser.add_argument("--target-words", type=int, default=400_000, help="Preferred words per chat Markdown source")
     convert_parser.add_argument("--hard-words", type=int, default=500_000, help="Hard words per chat Markdown source (max 500000)")
@@ -120,7 +140,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _add_budget_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--plan", choices=PLAN_LIMITS, default="standard", help="Gemini Notebook plan budget")
+    parser.add_argument("--plan", choices=PLAN_LIMITS, default="standard", help="Gemini Notebook plan budget: standard=50 sources, plus=100, pro=300, ultra20=500, ultra30=600")
     parser.add_argument("--source-limit", type=int, default=None, help="Override plan source count")
 
 

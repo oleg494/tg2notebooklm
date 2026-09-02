@@ -7,7 +7,7 @@ import shutil
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
@@ -86,12 +86,20 @@ class AtlasResult:
 def collect_candidates(chats: list[Chat]) -> tuple[list[MediaCandidate], list[dict[str, Any]]]:
     candidates_by_key: dict[tuple[Path, str], MediaCandidate] = {}
     records: list[dict[str, Any]] = []
+    resolve_cache: dict[Path, Path] = {}
+
+    def cached_resolve(path: Path) -> Path:
+        resolved = resolve_cache.get(path)
+        if resolved is None:
+            resolved = path.resolve()
+            resolve_cache[path] = resolved
+        return resolved
 
     for chat in chats:
         root = chat.export_root
         for message in chat.messages:
             for attachment in message.attachments:
-                relative_path = _relative_path(root, attachment.path)
+                relative_path = _relative_path(root, attachment.path, cached_resolve)
                 record: dict[str, Any] = {
                     "chat": chat.name,
                     "chat_id": chat.id,
@@ -112,11 +120,11 @@ def collect_candidates(chats: list[Chat]) -> tuple[list[MediaCandidate], list[di
                 }
                 records.append(record)
                 if attachment.available and attachment.path:
-                    _add_candidate(candidates_by_key, attachment.path, chat, message, attachment, "primary", record)
+                    _add_candidate(candidates_by_key, attachment.path, chat, message, attachment, "primary", record, resolver=cached_resolve)
                 if attachment.thumbnail_path:
-                    record["thumbnail_path"] = _relative_path(root, attachment.thumbnail_path)
+                    record["thumbnail_path"] = _relative_path(root, attachment.thumbnail_path, cached_resolve)
                     record["thumbnail_decision"] = "pending"
-                    _add_candidate(candidates_by_key, attachment.thumbnail_path, chat, message, attachment, "thumbnail", record)
+                    _add_candidate(candidates_by_key, attachment.thumbnail_path, chat, message, attachment, "thumbnail", record, resolver=cached_resolve)
 
     candidates = sorted(
         candidates_by_key.values(),
@@ -236,8 +244,8 @@ def _pin_pdf_dates(path: Path) -> None:
 
 
 
-def copy_native_source(candidate: MediaCandidate, output_dir: Path, ordinal: int) -> Path:
-    digest = file_digest(candidate.path)
+def copy_native_source(candidate: MediaCandidate, output_dir: Path, ordinal: int, digest: str | None = None) -> Path:
+    digest = digest or file_digest(candidate.path)
     original_name = safe_output_name(candidate.path.name)
     target = output_dir / f"native_{ordinal:03d}__{digest}__{original_name}"
     shutil.copyfile(candidate.path, target)
@@ -270,20 +278,23 @@ def _add_candidate(
     attachment: Attachment,
     role: str,
     record: dict[str, Any],
+    *,
+    resolver: Callable[[Path], Path],
 ) -> None:
-    resolved = path.resolve()
+    resolved = resolver(path)
     key = (resolved, role)
     if key not in candidates:
         candidates[key] = MediaCandidate(resolved, chat, message, attachment, role)
     candidates[key].records.append(record)
 
 
-def _relative_path(root: Path | None, path: Path | None) -> str | None:
+def _relative_path(root: Path | None, path: Path | None, resolver: Callable[[Path], Path] | None = None) -> str | None:
     if path is None:
         return None
     if root is not None:
+        resolve = resolver or Path.resolve
         try:
-            return path.resolve().relative_to(root.resolve()).as_posix()
+            return resolve(path).relative_to(resolve(root)).as_posix()
         except ValueError:
             pass
     return path.name

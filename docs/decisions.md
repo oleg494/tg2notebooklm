@@ -137,6 +137,47 @@ only in a future standalone sibling tool).
 naming the original document; individually citable artifacts (contracts, reports)
 stay single-slot.
 
+## D9 — Performance within Python (2026-09-02)
+
+**Decision:** stay in Python; measured hotspots were fixed in place. A Rust/Go
+rewrite was rejected: the browser edition runs this same code in Pyodide (D7),
+and a compiled rewrite would orphan it or double the maintenance surface.
+
+Profile on the real 39,672-message export, before → after:
+
+- `code_fence_for` per-char loop (9.0 s) → regex `` `+ `` scan: 6.7× faster,
+  equivalence proven on all 37k real texts.
+- `count_words` via `re.findall(r"\S+")` (3.9 s) → `len(text.split())`
+  (3.4× faster; whitespace semantics identical for `str.split`).
+- `_fit_text_chunks` re-counts every block on each binary-search iteration →
+  word/byte counts precomputed once per `TextBlock`.
+- Windows `Path.resolve()` storm in `collect_candidates` (~2.3 s) → per-run
+  resolve cache; `file_digest` recomputed up to 3× per file → `digest_of` cache.
+
+End-to-end: 28.6 s → 13.4 s (2.1×). Output verified byte-identical to the
+pre-optimization build (D4 holds; chunk boundaries unchanged).
+
+**Parallelism rule (future):** any worker must be pure (input candidate →
+output result); all mutation, ordinal assignment, and assembly stay serial in
+the existing sorted order, gated by the two-run byte-diff test. PIL releases
+the GIL, so a ThreadPool for image normalization is the only sanctioned form;
+skip it under Pyodide (`sys.platform == "emscripten"`, no crossOriginIsolated
+on GitHub Pages).
+
+## D10 — Universal file-dump mode (sketch, not built)
+
+**Idea:** accept a plain folder of arbitrary files (docs, text, audio, video,
+photos) with no chat semantics, and build the same source-budgeted package:
+text/markdown → merged `docs_*.md` chunks with `# file-NN:` boundary headers;
+born-digital PDFs → pypdf packing; images → atlases; everything else → native
+copies; budget lanes already exist (D8) and are format-agnostic.
+
+Sketch: a parser that walks the folder, wraps each file in a synthetic
+`Chat(name="dump", kind="folder")` + one `Message` per file (metadata-only),
+then reuses `build_package` untouched. Real cost is wording (`render_chat_header`
+/ index say "Telegram") and `detect.py` sniffing, both shared with any future
+second format. Not started until a real user asks for it (YAGNI).
+
 ## Known limitations
 
 1. **Unexportable media is unrecoverable** — if Telegram Desktop did not download

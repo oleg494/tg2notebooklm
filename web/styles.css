@@ -258,6 +258,15 @@ noscript { display: block; padding: 20px; color: #fff; background: var(--error);
   .cli-note { grid-template-columns: 1fr; gap: 12px; }
   .cli-note code { overflow-x: auto; }
 }
+.warning-strip {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--signal, #d97706);
+  background: #fff7ed;
+  color: #7c2d12;
+  font-size: 13px;
+  line-height: 1.5;
+}
 @media (max-width: 600px) {
   .masthead, main, footer { width: min(100% - 24px, 1180px); }
   .runtime-label { display: none; }

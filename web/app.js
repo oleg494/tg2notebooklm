@@ -134,8 +134,18 @@ async function acceptEntries(entries) {
   result.hidden = true;
   selection.hidden = false;
   document.querySelector("#selection-format").textContent = exportKind === "json" ? "Telegram JSON" : "Telegram HTML";
+  const totalBytes = exportFiles.reduce((sum, entry) => sum + entry.file.size, 0);
   document.querySelector("#selection-files").textContent = exportFiles.length.toLocaleString("ru-RU");
-  document.querySelector("#selection-size").textContent = formatBytes(exportFiles.reduce((sum, entry) => sum + entry.file.size, 0));
+  document.querySelector("#selection-size").textContent = formatBytes(totalBytes);
+  if (totalBytes > 800 * 1024 * 1024) {
+    showError(new Error(
+      `Выбрано ${formatBytes(totalBytes)}. Браузерная версия работает надёжно примерно до 800 МБ — большие экспорты конвертируйте командой: tg2notebooklm convert <папка-экспорта>`,
+    ));
+    convertButton.disabled = true;
+    idleState.hidden = false;
+    statusArea.hidden = true;
+    return;
+  }
   convertButton.disabled = false;
   idleState.hidden = false;
   statusArea.hidden = true;
@@ -172,10 +182,8 @@ function normalizeExport(entries) {
 function startConversion() {
   if (!exportFiles.length) return;
   clearError();
-  outputBlob = null;
-  result.hidden = true;
-  idleState.hidden = true;
-  statusArea.hidden = false;
+  const warningStrip = document.querySelector("#warning-strip");
+  if (warningStrip) warningStrip.hidden = true;
   convertButton.disabled = true;
   setProgress(1, "Запуск", "Подготавливаю изолированный фоновый процесс…");
 
@@ -183,7 +191,11 @@ function startConversion() {
   worker = new Worker("./converter-worker.js", { type: "module" });
   worker.addEventListener("message", handleWorkerMessage);
   worker.addEventListener("error", (event) => {
-    showError(new Error(event.message || "Фоновый процесс не запустился"));
+    const raw = event.message || "Фоновый процесс не запустился";
+    const translated = /abort|memory|allocation|too long|OOM/i.test(raw)
+      ? "Закончилась память браузера. Экспорт слишком большой для веб-версии — используйте CLI: tg2notebooklm convert <папка-экспорта>"
+      : raw;
+    showError(new Error(translated));
     convertButton.disabled = false;
   });
   worker.postMessage({
@@ -241,6 +253,15 @@ function renderResult(payload) {
     number.textContent = Number(value).toLocaleString("ru-RU");
     cell.append(name, number);
     resultGrid.append(cell);
+  }
+
+  const warnings = payload.warnings || [];
+  const warningStrip = document.querySelector("#warning-strip");
+  if (warnings.length) {
+    warningStrip.textContent = `Замечания конвертера: ${warnings.join("; ")}`;
+    warningStrip.hidden = false;
+  } else {
+    warningStrip.hidden = true;
   }
 
   sourceList.replaceChildren();

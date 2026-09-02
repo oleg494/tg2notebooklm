@@ -46,6 +46,7 @@ sources = [
 json.dumps({
     "summary": manifest["summary"],
     "sources": sources,
+    "warnings": manifest.get("warnings", []),
     "report": Path("/work/package/report.md").read_text(encoding="utf-8"),
 }, ensure_ascii=False)
 `);

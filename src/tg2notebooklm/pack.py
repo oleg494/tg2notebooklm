@@ -7,7 +7,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from tg2notebooklm.enrich import enrich_chats
 from tg2notebooklm.media import (
@@ -33,6 +33,9 @@ class TextBlock:
     chat: Chat
     message: Message
     text: str
+    word_count: int = 0
+    byte_count: int = 0
+
 
 
 @dataclass(slots=True)
@@ -83,6 +86,15 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
         raise FileExistsError(f"Output already exists: {output_dir}. Use --force to replace it.")
 
     staging = Path(tempfile.mkdtemp(prefix=f".{output_dir.name}-", dir=output_dir.parent))
+    digest_cache: dict[Path, str] = {}
+
+    def digest_of(path: Path) -> str:
+        cached = digest_cache.get(path)
+        if cached is None:
+            cached = file_digest(path)
+            digest_cache[path] = cached
+        return cached
+
     try:
         sources_dir = staging / "sources"
         sources_dir.mkdir()
@@ -155,7 +167,7 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
                     continue
                 if candidate.path.stat().st_size > pack_max_bytes:
                     continue
-                digest = file_digest(candidate.path)
+                digest = digest_of(candidate.path)
                 if digest in docs_seen_digests or digest in selected_native_digests:
                     continue
                 markdown = convert_to_markdown(candidate.path)
@@ -174,6 +186,7 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
                         markdown=markdown,
                     )
                 )
+
         if len(doc_candidates) >= 2:
             for content, chunk_members in pack_documents(doc_items, config.hard_words):
                 if slots_remaining <= 0:
@@ -186,12 +199,12 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
                 for candidate in doc_candidates:
                     if any(member.path == candidate.path for member in chunk_members):
                         selected_native_paths.add(candidate.path)
-                        selected_native_digests.add(file_digest(candidate.path))
+                        selected_native_digests.add(digest_of(candidate.path))
                         mark_candidate(candidate, "docs_markdown", source=docs_path.name)
 
 
         ordered_native = sorted(native_candidates, key=_native_priority)
-        packed_groups = _pack_pdf_groups(ordered_native, config, selected_native_digests, slots_remaining)
+        packed_groups = _pack_pdf_groups(ordered_native, config, selected_native_digests, slots_remaining, digest_of)
         for merged_name, group in packed_groups:
             merged_path = sources_dir / merged_name
             items = [
@@ -210,9 +223,10 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
             slots_remaining -= 1
             for candidate in group:
                 selected_native_paths.add(candidate.path)
-                selected_native_digests.add(file_digest(candidate.path))
+                selected_native_digests.add(digest_of(candidate.path))
                 mark_candidate(candidate, "native_source", source=merged_name)
             source_records.append(_source_record(merged_path, "native_attachment"))
+
         packed_paths = {candidate.path for _, group in packed_groups for candidate in group}
         docs_paths = {candidate.path for candidate in doc_candidates} if docs_count else set()
         for candidate in ordered_native:
@@ -229,12 +243,12 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
             if slots_remaining <= 0:
                 mark_candidate(candidate, "excluded_source_budget", reason="No source slots remained")
                 continue
-            digest = file_digest(candidate.path)
+            digest = digest_of(candidate.path)
             if digest in selected_native_digests:
                 mark_candidate(candidate, "native_source_duplicate", reason="Identical file content already selected (different export filename)")
                 continue
             native_count += 1
-            copied = copy_native_source(candidate, sources_dir, native_count)
+            copied = copy_native_source(candidate, sources_dir, native_count, digest)
             selected_native_paths.add(candidate.path)
             selected_native_digests.add(digest)
             slots_remaining -= 1
@@ -327,10 +341,17 @@ def _ensure_safe_replacement(output_dir: Path, chats: list[Chat]) -> None:
 
 def _text_blocks(chats: list[Chat], config: PackageConfig) -> list[TextBlock]:
     return [
-        TextBlock(chat, message, render_message(chat, message, config.inline_text_max_bytes))
+        TextBlock(
+            chat,
+            message,
+            text := render_message(chat, message, config.inline_text_max_bytes),
+            count_words(text),
+            len(text.encode("utf-8")),
+        )
         for chat in chats
         for message in chat.messages
     ]
+
 
 
 def _fit_text_chunks(blocks: list[TextBlock], chats: list[Chat], config: PackageConfig) -> list[TextChunk]:
@@ -383,20 +404,20 @@ def _pack_text(blocks: list[TextBlock], chats: list[Chat], target_words: int, co
             start_chunk(block.chat)
         elif active_chat is not block.chat:
             chat_header = render_chat_header(block.chat)
-            if _would_exceed(current, chat_header + "\n" + block.text, target_words, config.max_source_bytes):
+            if _would_exceed(current, chat_header + "\n" + block.text, target_words, config.max_source_bytes, extra_words=count_words(chat_header) + 1, extra_bytes=len(chat_header.encode("utf-8")) + 1):
                 flush()
                 start_chunk(block.chat)
             else:
                 _append_part(current, chat_header)
                 active_chat = block.chat
 
-        if current.blocks and _would_exceed(current, block.text, target_words, config.max_source_bytes):
+        if current.blocks and _would_exceed(current, block.text, target_words, config.max_source_bytes, extra_words=block.word_count, extra_bytes=block.byte_count):
             flush()
             start_chunk(block.chat)
-        continuation_reserve = count_words(f"### Continuation · msg {block.message.id} · part 999/999")
+        continuation_reserve = 8  # words in the longest possible continuation marker heading
         max_block_words = max(1, config.hard_words - current.words - continuation_reserve)
         max_block_bytes = max(1, config.max_source_bytes - current.byte_count - 512)
-        pieces = _split_oversized(block.text, max_block_words, max_block_bytes)
+        pieces = _split_oversized(block.text, max_block_words, max_block_bytes, block.word_count, block.byte_count)
         for piece_index, piece in enumerate(pieces, start=1):
             if piece_index > 1:
                 flush()
@@ -411,8 +432,8 @@ def _pack_text(blocks: list[TextBlock], chats: list[Chat], target_words: int, co
     return chunks
 
 
-def _split_oversized(text: str, max_words: int, max_bytes: int) -> list[str]:
-    if count_words(text) <= max_words and len(text.encode("utf-8")) <= max_bytes:
+def _split_oversized(text: str, max_words: int, max_bytes: int, word_count: int | None = None, byte_count: int | None = None) -> list[str]:
+    if (word_count if word_count is not None else count_words(text)) <= max_words and (byte_count if byte_count is not None else len(text.encode("utf-8"))) <= max_bytes:
         return [text]
     tokens = text.split()
     if not tokens:
@@ -439,8 +460,10 @@ def _append_part(chunk: TextChunk, text: str) -> None:
     chunk.byte_count += len(text.rstrip().encode("utf-8")) + 1
 
 
-def _would_exceed(chunk: TextChunk, text: str, target_words: int, max_bytes: int) -> bool:
-    return chunk.words + count_words(text) > target_words or chunk.byte_count + len(text.encode("utf-8")) + 1 > max_bytes
+def _would_exceed(chunk: TextChunk, text: str, target_words: int, max_bytes: int, *, extra_words: int | None = None, extra_bytes: int | None = None) -> bool:
+    words = extra_words if extra_words is not None else count_words(text)
+    byte_count = extra_bytes if extra_bytes is not None else len(text.encode("utf-8"))
+    return chunk.words + words > target_words or chunk.byte_count + byte_count + 1 > max_bytes
 
 
 def _corpus_header(chats: list[Chat]) -> str:
@@ -527,6 +550,7 @@ def _pack_pdf_groups(
     config: PackageConfig,
     selected_digests: set[str],
     slots_remaining: int,
+    digest_of: Callable[[Path], str],
 ) -> list[tuple[str, list[MediaCandidate]]]:
     """Greedily group small born-digital PDFs into merged native files (D8 rule 1).
 
@@ -545,7 +569,7 @@ def _pack_pdf_groups(
             continue
         if candidate.path.stat().st_size > pack_max_bytes:
             continue
-        digest = file_digest(candidate.path)
+        digest = digest_of(candidate.path)
         if digest in selected_digests:
             continue
         if not has_text_layer(candidate.path):
