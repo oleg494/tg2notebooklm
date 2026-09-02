@@ -154,6 +154,16 @@ Profile on the real 39,672-message export, before → after:
 - Windows `Path.resolve()` storm in `collect_candidates` (~2.3 s) → per-run
   resolve cache; `file_digest` recomputed up to 3× per file → `digest_of` cache.
 
+End-to-end: 28.6 s → 13.4 s (2.1×). Output verified byte-identical to the
+pre-optimization build (D4 holds; chunk boundaries unchanged).
+
+**Parallelism rule (future):** any worker must be pure (input candidate →
+output result); all mutation, ordinal assignment, and assembly stay serial in
+the existing sorted order, gated by the two-run byte-diff test. PIL releases
+the GIL, so a ThreadPool for image normalization is the only sanctioned form;
+skip it under Pyodide (`sys.platform == "emscripten"`, no crossOriginIsolated
+on GitHub Pages).
+
 ## D10 — Universal file-dump mode (shipped 2026-09-02)
 
 **Decision:** `convert`/`inspect` now accept any non-empty folder of files in
