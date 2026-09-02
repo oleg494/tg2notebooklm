@@ -1,6 +1,6 @@
 # tg2notebooklm
 
-**[→ Открыть веб-версию (без установки)](https://oleg494.github.io/tg2notebooklm/)**
+**[→ Open the web edition (no install)](https://oleg494.github.io/tg2notebooklm/)** · [Документация на русском](README.ru.md)
 
 Convert Telegram Desktop chat exports into a compact, deterministic set of
 [Gemini Notebook](https://notebooklm.google.com/) (formerly NotebookLM) sources — locally, with no uploads, and with a strict source budget.
