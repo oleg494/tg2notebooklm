@@ -3,7 +3,7 @@
 Every regular file becomes one Message with a metadata-only Attachment; the
 existing packing lanes (inline text, docs-to-markdown, PDF packing, image
 atlases, native copies) do the rest. Deterministic: files are sorted by
-posix-style relative path casefolded.
+posix-style relative path casefolded, and no filesystem timestamps are read.
 """
 from __future__ import annotations
 
@@ -11,9 +11,18 @@ from pathlib import Path
 
 from tg2notebooklm.model import Attachment, Chat, Message
 
-SKIP_DIRECTORIES = {"__pycache__", ".git", ".hg", ".svn", "node_modules", "__MACOSX", ".DS_Store"}
+SKIP_DIRECTORIES = {"__pycache__", ".git", ".hg", ".svn", "node_modules", "__macosx"}
+SKIP_FILENAMES = {".ds_store", "thumbs.db", "desktop.ini"}
 SKIP_SUFFIXES = {".pyc", ".pyo"}
 MAX_FILES = 20_000
+
+
+def _skipped(path: Path) -> bool:
+    if path.suffix.casefold() in SKIP_SUFFIXES:
+        return True
+    if path.name.casefold() in SKIP_FILENAMES:
+        return True
+    return any(part.casefold() in SKIP_DIRECTORIES for part in path.parts)
 
 
 def parse_file_dump(path: Path) -> Chat:
@@ -25,9 +34,7 @@ def parse_file_dump(path: Path) -> Chat:
 
     messages: list[Message] = []
     files = sorted(
-        (p for p in root.rglob("*") if p.is_file()
-         and p.suffix.casefold() not in SKIP_SUFFIXES
-         and not (set(p.parts) & SKIP_DIRECTORIES)),
+        (p for p in root.rglob("*") if p.is_file() and not _skipped(p)),
         key=lambda p: p.relative_to(root).as_posix().casefold(),
     )
     if len(files) > MAX_FILES:
@@ -39,10 +46,8 @@ def parse_file_dump(path: Path) -> Chat:
         relative = file_path.relative_to(root).as_posix()
         try:
             size = file_path.stat().st_size
-            mtime = int(file_path.stat().st_mtime)
         except OSError:
             size = None
-            mtime = None
         messages.append(
             Message(
                 id=f"file-{sequence:06d}",
@@ -59,7 +64,6 @@ def parse_file_dump(path: Path) -> Chat:
                         kind="file",
                         size=size,
                         available=True,
-                        metadata={"mtime": mtime, "relative_path": relative},
                     )
                 ],
             )

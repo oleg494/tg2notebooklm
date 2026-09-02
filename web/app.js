@@ -133,7 +133,7 @@ async function acceptEntries(entries) {
   outputBlob = null;
   result.hidden = true;
   selection.hidden = false;
-  document.querySelector("#selection-format").textContent = exportKind === "json" ? "Telegram JSON" : "Telegram HTML";
+  document.querySelector("#selection-format").textContent = ({ json: "Telegram JSON", html: "Telegram HTML", file_dump: "Папка с файлами" })[exportKind] || exportKind;
   const totalBytes = exportFiles.reduce((sum, entry) => sum + entry.file.size, 0);
   document.querySelector("#selection-files").textContent = exportFiles.length.toLocaleString("ru-RU");
   document.querySelector("#selection-size").textContent = formatBytes(totalBytes);
