@@ -130,7 +130,15 @@ Enable this once in repo settings: *Settings* → *Pages* → *Source: GitHub Ac
 3. `01_attachments.csv` — every attachment decision, queryable as a source.
 4. `images_*.pdf` — image atlases (default 160 images per PDF, 8 per page).
 5. `native_*` — copied original files: documents first, then large texts,
-   then audio/video by size.
+   then remaining upload-safe types by size.
+
+Audio/video never enters `sources/`. Speech-dependent media (voice messages,
+audio, video) is copied to a sibling **`optional_sources/`** directory instead:
+Gemini Notebook transcribes such files on import and may reject clips without
+recognizable speech, so they are uploaded separately, at your discretion, and
+a failed clip never breaks the guaranteed core. Optional media still counts
+toward the same notebook source budget and every file is audited in the
+manifest with decision `optional_media`.
 
 Anything that doesn't fit is listed in the manifest with the reason
 (`excluded_source_budget`, `unavailable`, `metadata_only`, …).

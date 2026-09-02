@@ -243,6 +243,7 @@ function renderResult(payload) {
     ["Markdown", summary.text_source_count],
     ["PDF-атласов", summary.image_atlas_count],
     ["Нативных", summary.native_source_count],
+    ["Аудио/видео (отдельно)", summary.optional_source_count ?? summary.optional_media_count ?? 0],
     ["Не влезло", summary.excluded_by_budget],
   ];
   for (const [label, value] of stats) {
@@ -274,6 +275,22 @@ function renderResult(payload) {
     size.textContent = formatBytes(source.bytes);
     item.append(name, size);
     sourceList.append(item);
+  }
+  const optional = payload.optional_sources || [];
+  if (optional.length) {
+    const header = document.createElement("li");
+    header.className = "optional-note";
+    header.textContent = `optional_sources/ — аудио/видео (${optional.length}): NotebookLM транскрибирует их при импорте и может отклонить клипы без речи. Загружайте отдельно, неудачи просто пропускайте.`;
+    sourceList.append(header);
+    for (const source of optional) {
+      const item = document.createElement("li");
+      const name = document.createElement("span");
+      name.textContent = source.name;
+      const size = document.createElement("span");
+      size.textContent = formatBytes(source.bytes);
+      item.append(name, size);
+      sourceList.append(item);
+    }
   }
   reportContent.textContent = payload.report;
   result.hidden = false;

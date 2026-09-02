@@ -42,11 +42,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload = result.as_dict()
             for warning in result.warnings:
                 print(f"warning: {warning}", file=sys.stderr)
-            print(
-                f"Done: {result.source_count} sources in {args.output}. "
-                "Upload the files from sources/ to your notebook; keep manifest.json and report.md for reference.",
-                file=sys.stderr,
+            done = (
+                f"Done: {result.core_source_count} sources in {args.output}/sources. "
+                "Upload every file from sources/ to your notebook; keep manifest.json and report.md for reference."
             )
+            if result.optional_source_count:
+                done += (
+                    f" {result.optional_source_count} audio/video file(s) sit in optional_sources/ — "
+                    "Gemini Notebook transcribes them on import and may reject clips without speech; add them "
+                    "separately and skip any that fail."
+                )
+            print(done, file=sys.stderr)
         print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
         return 0
     except FileNotFoundError as exc:

@@ -233,6 +233,7 @@ progress::-moz-progress-bar { background: var(--signal); }
 .source-list li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #29435f; color: #c3d2e1; font: 11px "Cascadia Mono", Consolas, monospace; }
 .source-list li span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .source-list li span:last-child { flex: 0 0 auto; color: #7892aa; }
+.source-list li.optional-note { display: block; color: #d9a05b; font-size: 11px; line-height: 1.5; }
 .report-details { margin-top: 16px; color: #b9cad9; }
 .report-details summary { cursor: pointer; }
 .report-details pre { max-height: 260px; padding: 12px; overflow: auto; white-space: pre-wrap; color: #b9cad9; background: #071321; border: 1px solid #29435f; font-size: 11px; }

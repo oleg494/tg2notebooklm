@@ -43,13 +43,20 @@ sources = [
     for path in sorted((Path("/work/package") / "sources").iterdir())
     if path.is_file()
 ]
+optional_dir = Path("/work/package") / "optional_sources"
+optional_sources = [
+    {"name": path.name, "bytes": path.stat().st_size}
+    for path in sorted(optional_dir.iterdir())
+    if path.is_file()
+] if optional_dir.is_dir() else []
 json.dumps({
     "summary": manifest["summary"],
     "sources": sources,
+    "optional_sources": optional_sources,
     "warnings": manifest.get("warnings", []),
     "report": Path("/work/package/report.md").read_text(encoding="utf-8"),
 }, ensure_ascii=False)
-`);
+\`);
     const payload = JSON.parse(payloadJson);
 
     progress(82, "ZIP", "Сжимаю источники и аудит в один скачиваемый архив…");

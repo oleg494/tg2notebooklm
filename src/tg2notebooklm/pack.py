@@ -98,6 +98,7 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
     try:
         sources_dir = staging / "sources"
         sources_dir.mkdir()
+        optional_dir: Path | None = None
         warnings = enrich_chats(chats, config)
         candidates, attachment_records = collect_candidates(chats)
         media_candidates = _deduplicate_candidates(candidates)
@@ -118,6 +119,7 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
             source_records.append(_source_record(path, "chat_markdown", chunk))
 
         slots_remaining = config.source_limit - 2 - len(source_records)
+        total_slots = slots_remaining  # D11: audio/video spend the same notebook budget, just from a separate pool
         image_candidates = [candidate for candidate in media_candidates if classify_candidate(candidate, config) == "image"]
         native_candidates = [candidate for candidate in media_candidates if classify_candidate(candidate, config) == "native"]
         for candidate in media_candidates:
@@ -229,6 +231,7 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
 
         packed_paths = {candidate.path for _, group in packed_groups for candidate in group}
         docs_paths = {candidate.path for candidate in doc_candidates} if docs_count else set()
+        optional_media_ordinal = 0
         for candidate in ordered_native:
             if candidate.path in selected_native_paths:
                 if candidate.path not in packed_paths and candidate.path not in docs_paths:
@@ -240,12 +243,28 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
             if candidate.path.stat().st_size > config.max_source_bytes:
                 mark_candidate(candidate, "metadata_only", reason=f"File exceeds configured source byte ceiling ({config.max_source_bytes})")
                 continue
-            if slots_remaining <= 0:
-                mark_candidate(candidate, "excluded_source_budget", reason="No source slots remained")
-                continue
             digest = digest_of(candidate.path)
             if digest in selected_native_digests:
                 mark_candidate(candidate, "native_source_duplicate", reason="Identical file content already selected (different export filename)")
+                continue
+            if candidate.suffix in AUDIO_VIDEO_EXTENSIONS:
+                # D11: speech-dependent media never enters the guaranteed upload set.
+                if total_slots <= 0:
+                    mark_candidate(candidate, "excluded_source_budget", reason="No source slots remained (audio/video counts toward the notebook budget)")
+                    continue
+                if optional_dir is None:
+                    optional_dir = staging / "optional_sources"
+                    optional_dir.mkdir()
+                optional_media_ordinal += 1
+                copied = copy_native_source(candidate, optional_dir, optional_media_ordinal, digest)
+                selected_native_paths.add(candidate.path)
+                selected_native_digests.add(digest)
+                total_slots -= 1
+                mark_candidate(candidate, "optional_media", source=copied.name)
+                source_records.append(_source_record(copied, "optional_media"))
+                continue
+            if slots_remaining <= 0:
+                mark_candidate(candidate, "excluded_source_budget", reason="No source slots remained")
                 continue
             native_count += 1
             copied = copy_native_source(candidate, sources_dir, native_count, digest)
@@ -266,7 +285,7 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
 
         if len(source_records) > config.source_limit:
             raise AssertionError("Internal error: source budget exceeded")
-        _validate_sources(sources_dir, source_records, config)
+        _validate_sources(sources_dir, source_records, config, optional_dir)
 
         manifest = {
             "schema_version": 1,
@@ -277,10 +296,13 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
                 "message_count": sum(len(chat.messages) for chat in chats),
                 "attachment_count": len(attachment_records),
                 "source_count": len(source_records),
+                "core_source_count": len(source_records) - optional_media_ordinal,
+                "optional_source_count": optional_media_ordinal,
                 "text_source_count": len(text_chunks),
                 "image_atlas_count": atlas_count,
                 "attachment_catalog_count": 1,
                 "native_source_count": native_count,
+                "optional_media_count": optional_media_ordinal,
                 "docs_markdown_count": docs_count,
                 "unavailable_attachments": sum(not record["available"] for record in attachment_records),
                 "excluded_by_budget": sum(record.get("decision") == "excluded_source_budget" for record in attachment_records),
@@ -319,6 +341,7 @@ def build_package(chats: list[Chat], output_dir: Path, config: PackageConfig | N
             message_count=sum(len(chat.messages) for chat in chats),
             attachment_count=len(attachment_records),
             warnings=warnings,
+            optional_source_count=optional_media_ordinal,
         )
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
@@ -645,6 +668,20 @@ def _render_index(
         if source.first_message_id:
             details.append(f"messages {source.first_message_id}…{source.last_message_id}")
         lines.append(f"- `{source.name}` — " + "; ".join(details))
+    optional_sources = [source for source in sources if source.kind == "optional_media"]
+    if optional_sources:
+        lines.extend([
+            "",
+            "## Optional audio/video",
+            "",
+            "Files in the sibling `optional_sources/` directory are speech-dependent: Gemini Notebook "
+            "transcribes them on import and may reject clips without recognizable speech. They are NOT part "
+            "of the guaranteed upload set — add them after the core `sources/` upload, one by one or in "
+            "batches, and simply skip any that fail. Every skipped file is still auditable in `manifest.json` "
+            "with decision `optional_media`.",
+            "",
+        ])
+        lines.extend(f"- `{source.name}` — {source.byte_count:,} bytes" for source in optional_sources)
     unavailable = sum(not item["available"] for item in attachments)
     excluded = sum(item.get("decision") == "excluded_source_budget" for item in attachments)
     missing_label = "Not found on disk" if dump_mode else "Not present in Telegram export"
@@ -682,10 +719,11 @@ def _render_report(manifest: dict[str, Any]) -> str:
         f"- Chats: {summary['chat_count']}",
         f"- Messages/service records: {summary['message_count']:,}",
         f"- Attachment records: {summary['attachment_count']:,}",
-        f"- Files to upload: {summary['source_count']}",
+        f"- Files to upload (guaranteed core): {summary['core_source_count']}",
         f"- Chat Markdown sources: {summary['text_source_count']}",
         f"- Image atlas PDFs: {summary['image_atlas_count']}",
         f"- Native attachment sources: {summary['native_source_count']}",
+        f"- Optional audio/video in optional_sources/ (upload at discretion): {summary.get('optional_media_count', 0)}",
         "",
         "## Attachment decisions",
         "",
@@ -740,11 +778,16 @@ def _source_record(path: Path, kind: str, chunk: TextChunk | None = None) -> Sou
     )
 
 
-def _validate_sources(sources_dir: Path, sources: list[SourceRecord], config: PackageConfig) -> None:
+def _validate_sources(sources_dir: Path, sources: list[SourceRecord], config: PackageConfig, optional_dir: Path | None = None) -> None:
+    core = [source for source in sources if source.kind != "optional_media"]
     actual = sorted(path.name for path in sources_dir.iterdir() if path.is_file())
-    expected = sorted(source.name for source in sources)
-    if actual != expected:
+    if actual != sorted(source.name for source in core):
         raise AssertionError("Manifest source list does not match sources directory")
+    if optional_dir is not None:
+        optional = [source for source in sources if source.kind == "optional_media"]
+        actual_optional = sorted(path.name for path in optional_dir.iterdir() if path.is_file())
+        if actual_optional != sorted(source.name for source in optional):
+            raise AssertionError("Manifest source list does not match optional_sources directory")
     for source in sources:
         if source.byte_count > config.max_source_bytes:
             raise ValueError(f"Generated source exceeds byte ceiling: {source.name}")

@@ -149,11 +149,18 @@ class PackageResult:
     message_count: int
     attachment_count: int
     warnings: list[str] = field(default_factory=list)
+    optional_source_count: int = 0
+
+    @property
+    def core_source_count(self) -> int:
+        return self.source_count - self.optional_source_count
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "output_dir": str(self.output_dir),
             "source_count": self.source_count,
+            "core_source_count": self.core_source_count,
+            "optional_source_count": self.optional_source_count,
             "text_source_count": self.text_source_count,
             "attachment_catalog_count": self.attachment_catalog_count,
             "image_atlas_count": self.image_atlas_count,

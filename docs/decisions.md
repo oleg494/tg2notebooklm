@@ -188,6 +188,30 @@ export marker is present; the worker's `parse_export` picks the same path.
 **Not built (YAGNI):** per-subfolder chats, mtime-based ordering, glob
 filters. None requested; the source budget dominates at this scale.
 
+## D11 — Upload-safe source contract: core sources/ + optional_sources/ (2026-09-02)
+
+**Decision:** audio/video never enters the guaranteed `sources/` directory.
+Speech-dependent media (voice messages, audio, video) is copied to a sibling
+`optional_sources/` directory, still counted against the same notebook source
+budget, with manifest decision `optional_media`. The index, report, and CLI
+epilogue explain the split: upload `sources/` whole; add `optional_sources/`
+separately and skip clips that fail.
+
+**Evidence:** live upload tests against a real notebook (2026-09-02): 48 of 73
+package sources failed — 41 `.ogg` and 7 `.mp4` rejected during server-side
+speech transcription ("Не удалось распознать речи"), 1 video without an audio
+track. Google's docs (answer/16215270) confirm audio import is
+transcription-based and "may fail if the audio is low quality" or has no
+speech — so any converter promise of "upload everything" is false for media.
+The same docs list Markdown/PDF/CSV/docx/pptx/epub/txt as first-class
+upload types with no transcription dependency.
+
+**Rejected:** keeping one mixed directory with a warning (the tool's core
+promise — "upload every file in sources/" — stays false); dropping media
+entirely (loses voice messages that DO transcribe; user chose the middle
+path); transcribing everything locally by default (doubles conversion time
+and downloads an ML model — already available opt-in via `--transcribe-audio`).
+
 ## Known limitations
 
 1. **Unexportable media is unrecoverable** — if Telegram Desktop did not download
