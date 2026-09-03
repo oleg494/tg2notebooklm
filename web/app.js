@@ -189,10 +189,12 @@ function startConversion() {
   setProgress(1, "Запуск", "Подготавливаю изолированный фоновый процесс…");
 
   if (worker) worker.terminate();
-  worker = new Worker("./converter-worker.js", { type: "module" });
+  worker = new Worker(`./converter-worker.js?v=${Date.now()}`, { type: "module" });
   worker.addEventListener("message", handleWorkerMessage);
   worker.addEventListener("error", (event) => {
-    const raw = event.message || "Фоновый процесс не запустился";
+    console.error("Worker startup/runtime error:", event);
+    const detail = event.message || (event.filename ? `${event.filename}:${event.lineno}` : "");
+    const raw = detail || "Фоновый процесс не запустился (кэш браузера или блокировка скриптов). Попробуйте в режиме инкогнито (Ctrl+Shift+N) или жесткую перезагрузку (Ctrl+Shift+R).";
     const translated = /abort|memory|allocation|too long|OOM/i.test(raw)
       ? "Закончилась память браузера. Экспорт слишком большой для веб-версии — используйте CLI: tg2notebooklm convert <папка-экспорта>"
       : raw;
