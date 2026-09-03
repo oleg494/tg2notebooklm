@@ -56,7 +56,7 @@ json.dumps({
     "warnings": manifest.get("warnings", []),
     "report": Path("/work/package/report.md").read_text(encoding="utf-8"),
 }, ensure_ascii=False)
-\`);
+`);
     const payload = JSON.parse(payloadJson);
 
     progress(82, "ZIP", "Сжимаю источники и аудит в один скачиваемый архив…");

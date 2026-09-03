@@ -44,3 +44,33 @@ def test_build_site_replaces_previous_output(tmp_path: Path) -> None:
     build_site(root, destination, wheel)
 
     assert not stale.exists()
+
+
+def test_web_javascript_syntax() -> None:
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        return
+    checker = """
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+for (const name of ['app.js', 'converter-worker.js']) {
+  const code = fs.readFileSync(path.join('web', name), 'utf8');
+  try {
+    new vm.SourceTextModule(code);
+  } catch (err) {
+    console.error(`Syntax error in ${name}:`, err);
+    process.exit(1);
+  }
+}
+"""
+    result = subprocess.run(
+        [node, "--experimental-vm-modules", "-e", checker],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"Node reported syntax error:\n{result.stderr}\n{result.stdout}"
